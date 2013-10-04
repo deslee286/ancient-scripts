@@ -1,0 +1,12 @@
+#!/usr/bin/perl -w
+use strict;
+
+my @dirs	= <*>;
+foreach my $dir (@dirs) {
+  if( $dir =~ /[^\w\d\[\]\(\)\s]\./ ) {
+    print "Invalid: $dir\n";
+  }
+  elsif( $dir =~ /\?/ ) {
+    print "??????:  $dir\n";
+  }
+}

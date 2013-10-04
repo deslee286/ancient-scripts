@@ -1,0 +1,124 @@
+#!/usr/bin/perl -w
+use Getopt::Long;
+use IO::File;
+
+my $file_re	= "";
+my $dir		= "./";
+my $recurse	= 0;
+my $filenames_only	= 0;
+my $append_cr	= "";
+
+GetOptions( "fr=s"	=> \$file_re,
+	    "d=s"	=> \$dir,
+	    "r"	       	=> \$recurse,
+	    "l"		=> \$filenames_only,
+	    "cr"	=> \$append_cr,
+	  );
+if( $append_cr ) {
+  $append_cr = "\n";
+}
+
+my $re		= shift;
+if( ! $re ) {
+  usage(); exit;
+}
+
+# Setup regular expression
+if( ! $re or $re !~ /\s*\/.*\/[a-z]*\s*$/ ) {
+  usage();
+  exit 1;
+}
+
+# Encapsulate in a fast procedure
+my $proc	= eval "sub {\$_=shift; if( $re ) { return \$_; } return ''; }"
+  || die $@;
+
+if( $file_re ) {
+#  print "Here!\n";
+  # If using $file_re then we need to look at all the files in $dir...
+  my $file_re_proc	= eval "sub {\$_=shift; if( $file_re ) { return \$_; } return ''; }"
+    || die $@;
+  my @files = glob( $dir."/*" );
+#  print join( ",", @files );
+  foreach my $file (@files) {
+#    print "Test: $file\n";
+    next	if( ! &$file_re_proc( $file ) );
+#    print "Checking file: '$file'\n";
+    my $FH	= IO::File->new( $file );
+    if( ! $FH ) {
+      warn "Could not open file: '$file'\n";
+      next;
+    }
+    else {
+      while( <$FH> ) {
+	if( &$proc( $_ ) ) {
+	  if( $filenames_only ) {
+	    print $file,"\n";
+	  }
+	  else {
+	    print $file,":\t", $_, $append_cr;
+	  }
+	}
+      }
+    }
+  }
+}
+else {
+  # Just go through all the data files given...
+  while(<>) {
+    if( &$proc( $_ ) ) {
+      if( $filenames_only ) {
+	print $ARGV[0],"\n";
+      }
+      else {
+	print $ARGV[0],":\t",$_,$append_cr;
+      }
+    }
+  }
+}
+
+sub usage {
+  print <<EOT
+
+  Usage:
+
+perlgrep /REGEXP/ <FILES>
+
+perlgrep is a simple grep program that allows you to use
+Perl regular expressions.
+
+EOT
+  ;
+
+}
+
+=head1 SYNPOSIS
+
+    > perlgrep /REGEXP/ <FILES>
+
+=head1 DESCRIPTION
+
+perlgrep is a very simple grep utility.  It is useful for when you want to
+use Perl regular expressions, or on platforms that do not have the grep
+utility installed.
+
+=head1 EXAMPLES
+
+    > perlgrep /automatic.*[987]\d{2,3}/ somefiles*
+
+=head1 NOTE
+
+This script only handles ascii files.
+
+=head1 AUTHOR
+
+Desmond Lee, E<lt>deslee@shaw.caE<gt>
+
+=head1 COPYRIGHT AND LICENSE
+
+Copyright 2003 by Desmond Lee
+
+This script be free software; you can redistribute it and/or modify
+it under the same terms as Perl itself.
+
+=cut

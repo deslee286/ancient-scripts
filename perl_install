@@ -1,0 +1,38 @@
+#!/usr/bin/perl
+use strict;
+my %files_pre	= map {$_ => 1} <*>;
+
+while( my $fn = shift ) {
+  print "Untarring and installing file: '$fn'...\n";
+  `tar -zxf $fn`;
+  my $probably_dir	= $fn;
+  $probably_dir		=~ s/\.tar\.gz//i;
+  if( -d $probably_dir ) {
+    make_test_install( $probably_dir );
+    $files_pre{$probably_dir}	= 1;
+  } else {
+    my @files_post	= grep { ! $files_pre{$_} } <*>;
+    if( scalar @files_post > 1 ) {
+      die "\n\nError: multiple files/directories decompressed from '$fn'.\n".
+	"Dirs/Files: ".join( ",", @files_post );
+    }
+    my $install_dir	= $files_post[0];
+    if( ! -d $install_dir ) {
+      die "\n\nError: decompressed a file instead of a directory from '$fn'.\n".
+	"File: $install_dir";
+    }
+    make_test_install( $install_dir );
+    $files_pre{$install_dir}	= 1;
+  }
+  print "Done!\n";
+}
+
+sub make_test_install {
+  my $dir		= shift;
+  chdir( $dir ) || die "Cannot chdir to '$dir'";
+  system( "perl", "Makefile.PL" ) && die "Could not make Makefile in dir '$dir'";
+  system( "make" ) && die "'make' failed in dir '$dir'";
+  system( "make", "test" ) && die "'make test' failed in dir '$dir'";
+  system( "make", "install" ) && die "'make install' failed in dir '$dir'";
+  chdir "..";
+}

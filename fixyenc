@@ -1,0 +1,13 @@
+#!/usr/bin/perl -w
+use strict;
+
+while(<>) {
+  next		if( /^$/ );
+  print;
+  if( /^v---------------------------+/ ) {
+    print "\n";
+  }
+  if( /^\=yend / ) {
+    print "\n";
+  }
+}

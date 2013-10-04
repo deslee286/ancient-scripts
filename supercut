@@ -1,0 +1,156 @@
+#!/usr/bin/perl -w
+use strict;
+
+use Getopt::Long;
+
+my $start_delim		= "";
+my $end_delim		= "";
+my $include_delims	= 0;
+my $num_cuts		= 100_000_000;
+my $reverse		= 0;
+my $help		= 0;
+GetOptions( "s=s"	=> \$start_delim,
+	    "e=s"	=> \$end_delim,
+	    "id"	=> \$include_delims,
+	    "n=s"	=> \$num_cuts,
+	    "r"	       	=> \$reverse,
+	    'h'		=> \$help,
+	    'help'	=> \$help,
+	  );
+
+if( $start_delim and $end_delim ) {
+  if( $reverse ) {
+    grab_delim( [@ARGV], $start_delim, $end_delim, $include_delims, $num_cuts );
+  } else {
+    cut_delim( [@ARGV], $start_delim, $end_delim, $include_delims, $num_cuts );
+  }
+}
+
+sub grab_delim {
+  my $files		= shift;
+  my $start_delim	= shift;
+  my $end_delim		= shift;
+  my $include_delims	= shift;
+  my $num_cuts		= shift;
+
+  my $start_re		= qr/$start_delim/;
+  my $end_re		= qr/$end_delim/;
+  OUTER: while( ! eof() ) {
+    $_			= <>;
+    if( $_ =~ $start_re ) {
+      if( $include_delims ) {
+	print;
+      }
+      while( ! eof () ) {
+	$_		= <>;
+	if( $_ =~ $end_re ) {
+	  if( $include_delims ) {
+	    print;
+	  }
+	  $num_cuts--;
+	  last OUTER	if( ! $num_cuts );
+	  last;
+	}
+	print;
+      }
+    }
+  }
+}
+
+sub cut_delim {
+  my $files		= shift;
+  my $start_delim	= shift;
+  my $end_delim		= shift;
+  my $include_delims	= shift;
+  my $num_cuts		= shift;
+
+  my $start_re		= qr/$start_delim/;
+  my $end_re		= qr/$end_delim/;
+
+  foreach( @$files ) {
+    ;
+  }
+ OUTER: while( ! eof() ) {
+    $_	= <>;
+    if( $_ !~ $start_re ) {
+      print;
+    }
+    else {
+      if( $include_delims ) {
+	print;
+      }
+      # Enter the loop of cutting!
+      while( ! eof() ) {
+	$_	= <>;
+	if( $_ =~ $end_re ) {
+	  if( $include_delims ) {	# Print out the delimiter if we're not cutting them.
+	    print;
+	  }
+	  $num_cuts--;
+	  last OUTER	if( ! $num_cuts );
+	  last;
+	}
+	else {
+	  # Do nothing, don't print!
+	}
+      }
+    }
+  }
+}
+
+=head1 SYNPOSIS
+
+    > supercut [-s START_DELIM] [-e END_DELIM] [-id] [-r] [-h] [-n NUM_CUTS]
+
+=head1 DESCRIPTION
+
+This script will slice out bits of an ascii file using start and end delimiters.
+
+You can specify how many times to perform the slice using the -n option.
+
+The -r option reverses the slice.  (instead of getting the stuff between the
+delimiters, you get everything else)
+
+If you use the -id option, the delimiter lines will be included in the output.
+
+=head1 EXAMPLES
+
+To get the first 5 "Directory" directives out of an Apache configuration file,
+and not display any comments:
+
+    > supercut -s "<Directory" -e /Directory -n 5 -r -id \
+    /etc/httpd/conf/commonhttpd.conf | grep -v '^\s*\#'
+
+The start delimiter is '<Directory' and the end dilimiter is '/Directory'.
+The -r option tells supercut to print out the contents between the delimiters,
+and the -id option tells supercut to include those delimiters.
+
+=head1 FUTURE ENHANCEMENTS
+
+=item *
+
+Allow the start and end delimiter to be on the same line.
+That way you could match a bit of HTML like "<H1>Home</H1>", as well
+as larger blocks that span multiple lines.
+
+=item *
+
+Optionally print out a separating line (ie: a line full of dashes)
+between matched blocks for easy viewing.
+
+=head1 NOTE
+
+This script only handles ascii files.
+
+=head1 AUTHOR
+
+Desmond Lee, E<lt>deslee@shaw.caE<gt>
+
+=head1 COPYRIGHT AND LICENSE
+
+Copyright 2003 by Desmond Lee
+
+This library is free software; you can redistribute it and/or modify
+it under the same terms as Perl itself.
+
+=cut

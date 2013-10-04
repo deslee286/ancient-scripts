@@ -1,0 +1,27 @@
+#!/usr/bin/perl -w
+use strict;
+use IO::File;
+
+my $start	= 0;
+my $OF		= "";
+my $skip	= 1;
+while(<>) {
+  if( /^v------------------------+$/ ) {
+    $skip	= 0;
+    next;
+  }
+  next		if( $skip );
+  if( /^begin \d\d\d/ ) {
+    $OF		= IO::File->new( ">$start.uue" );
+    $start++;
+    print $OF $_;
+    next;
+  }
+  if( /^\^-----------------------+$/ ) {
+    $skip	= 1;
+  }
+  next		if( /^$/ );
+  if( $OF and ! $skip ) {
+    print $OF $_;
+  }
+}

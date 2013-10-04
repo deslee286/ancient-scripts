@@ -1,0 +1,50 @@
+#!/usr/bin/perl -w
+use strict;
+use Getopt::Long;
+my $force		= 0;
+my $lowercase		= 0;
+my $automatically	= 0;
+my $uppercase		= 0;
+Getopt::Long::Configure( "pass_through" );
+GetOptions( "-f"	=> \$force,
+	    "-l"	=> \$lowercase,
+	    "-a"	=> \$automatically,
+	    "-u"	=> \$uppercase,
+	  );
+
+sub escape {
+  my $fn	= shift;
+  $fn		=~ s/([ \!\|\`\'\"\&\(\)\[\]\@])/\\$1/g;
+  return $fn;
+}
+
+my $fn;
+my $format	= "%02d";
+if( scalar @ARGV >= 100 ) {
+  $format	= "%03d";
+}
+elsif( scalar @ARGV >= 1000 ) {
+  $format	= "%04d";
+}
+my $count	= 1;
+while( $fn = shift ) {
+  $_	= $fn;
+
+  my $orig_fn	= $fn;
+  my $changed_fn	= sprintf( $format, $count ) . "-" . $orig_fn;
+
+  my $mv	= "mv ";
+  if( $force ) {
+    $mv	.=	"-f ";
+  }
+  if( $automatically ) {
+    rename( $orig_fn, $changed_fn ) || die "Could not rename '$orig_fn' to '$changed_fn'";
+  } else {
+    my $orig_escaped	= escape $orig_fn;
+    my $changed_escaped	= escape $changed_fn;
+    print "$mv $orig_escaped $changed_escaped\n";
+  }
+  $count++;
+}
+
+

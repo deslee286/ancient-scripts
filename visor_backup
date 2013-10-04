@@ -1,0 +1,31 @@
+#!/usr/bin/perl -w
+use strict;
+use easy_get_options;
+my $opts		= easy_get_options(
+					   [ ["f", "full"],
+					     ["e", "exclude"],
+					   ],
+					   { e	=> "$ENV{HOME}/visor/backups/exclude_list.txt",
+					   },
+					  );
+$opts->{-e}		= $opts->{e};
+delete $opts->{e};
+if( $opts->{f} ) {
+  delete $opts->{-e};
+}
+delete $opts->{f};
+
+
+my $base_backup_dir	= $ENV{HOME}."/visor/backups/";
+my($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst)	= localtime(time);
+my $dir			= $base_backup_dir . join("-", $year+1900, $mon+1, $mday);
+
+$ENV{PILOTRATE}		= 115200;
+print "Syncing palm to '$dir'\n";
+print("  Exclude file: '$opts->{-e}'\n") if( $opts->{-e} );
+
+print "Executing: ", join(" ", "pilot-xfer", %$opts, "-b", $dir,  %$opts );
+system( "pilot-xfer", %$opts, "-b", $dir );
+#my $cmdline		= join(" ", "pilot-xfer", %$opts, "-b", $dir);
+#print "Executing: $cmdline\n";
+#`$cmdline 1>&2`;

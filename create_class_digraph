@@ -1,0 +1,216 @@
+#!/usr/bin/perl -w
+package GOROMA;
+package CCD;
+use vars qw/@ISA/;
+@ISA	= qw(GOROMA);
+use strict;
+use Getopt::Long;
+use IO::File;
+use Data::Dumper;
+##################################################################
+my $digraph_file	= "default.dot";
+my $ignore_path_regexp	= "i386-linux";
+my $print_object	= 0;
+my $inheritance_only	= 0;
+my $no_inheritance	= 0;
+my $inheritance_edgelines_only	= 0;
+GetOptions( "o=s"	=> \$digraph_file,
+	    "i=s"	=> \$ignore_path_regexp,
+	    "po"	=> \$print_object,
+	    "io"	=> \$inheritance_only,
+	    "ni"	=> \$no_inheritance,
+	    "ielo"	=> \$inheritance_edgelines_only,
+	  );
+my %ignore_packages	= ( "IO::File"		=> 1,
+			    "Getopt::Long"	=> 1,
+			    "strict"		=> 1,
+			    "vars"		=> 1,
+			    "our"		=> 1,
+			    "AutoLoader"	=> 1,
+			    "Exporter"		=> 1,
+			    "Data::Dumper"	=> 1,
+			    "Carp"		=> 1,
+			    "overload"		=> 1,
+			  );
+my $ignore_path_compiled_regexp	= qr/$ignore_path_regexp/;
+##################################################################
+sub module_to_path {
+  my $module_name	= shift || die "No module!";
+
+  my $rel_path		= $module_name;
+  $rel_path		=~ s/\:\:/\//g;
+  my $filename		= $rel_path . ".pm";
+
+  foreach my $inc ( @INC ) {
+    if( -f $inc."/".$filename ) {
+      return "$inc/$filename";
+    }
+  }
+  warn "Could not find module: '$module_name'";
+  return undef;
+}
+##################################################################
+sub new {
+  my $type		= shift;
+
+  my $options		= shift || {};
+  my @files		= @_;
+  my $self		= {};
+  bless $self, $type;
+  $self->{options}	= $options;
+  $self->{results}	= [];
+  $self->{files}	= [];
+  $self->{files_hash}	= {};
+  $self->add_files( @files );
+
+  return $self;
+}
+
+sub add_files {
+  my $self		= shift;
+  while( my $file = shift ) {
+    if( ! $self->{files_hash}{$file} ) {
+      push @{$self->{files}}, $file;
+      $self->{files_hash}{$file}	= 1;
+    }
+  }
+}
+
+sub parse_files {
+  my $self		= shift;
+  while( my $file = pop @{$self->{files}} ) {
+    $self->parse_file( $file );
+  }
+}
+
+sub parse_out_ISA {
+  my $self		= shift;
+  my $data		= shift;
+
+  # To keep it simple, I only parse out qw//, qw(), qw{}, qw[], and ("MOD", ...)
+  # lists.  I want this script to stand alone, otherwise I might find a module
+  # from CPAN to generate an inheritance list.
+
+  # qw...
+  if( $data =~ /^\s*\@ISA\s*\=\s*qw(.)([^\/\)\]\|]+)/sm ) {
+    my $ws_separated_isa	= $2;
+    return split /\s+/, $ws_separated_isa;
+  }
+  # Perl list
+  if( $data =~ /^\s*\@ISA\s*\=\s*\(([^\)]+)\)/sm ) {
+    my $comma_separted_isa	= $1;
+    my @ISA		= split /,/, $comma_separted_isa;
+    map { s/^[\s\"\']+//; s/[\s\"\']+$// } @ISA;
+    return @ISA;
+  }
+  # No @ISA found!
+  print "NO ISA!\n";
+  return ();
+}
+
+sub parse_file {
+  my $self		= shift;
+  my $file		= shift;
+
+  my %results		= ( file		=> $file,
+			    package		=> "",
+			    used_modules	=> [],
+			  );
+  my $FH		= IO::File->new( $file ) || die "Can't open file: '$file'";
+  my @data		= <$FH>;
+#  my $keeping		= 1;
+#  @data			= grep { if( /^\=cut/ ) { $keeping = 1; } if( /^=(head1|head2|item|over|back|cut|pod|for|begin)/ ) { $keeping = 0; } $keeping } @data;
+
+  my $data		= join "", @data;
+  # Cut out all POD
+  $data			=~ s/^\=(head1|head2|item|over|back|cut|pod|for|begin|end)\b.*?^\=cut//imsg;
+  # Cut out HERE DOCS
+  $data			=~ s/\<\<['"]?(\w+)['"]?.*?^\1$//imsg;
+  # Grab the ISA:
+  my @this_ISA		= $self->parse_out_ISA( $data );
+  $results{ISA}		= \@this_ISA;
+
+  @data			= split /\n/, $data;
+  for( @data ) {
+    if( /^\s*package\s+([^\s]+)\s*\;/ and ! $results{package} ) {
+      $results{package}	= $1;
+      next;
+    }
+    if( /^\s*(use|require)\s+([^\s]+)\b(.*)\;/ ) {
+      my $use_or_require	= $1;
+      my $module		= $2;
+      my $args			= $3;
+      next			if( $module =~ /^\d/ );
+      next			if( $ignore_packages{$module} );
+      push @{$results{used_modules}}, $module	if( ! $results{module_use_count}{$module} );
+      $results{module_use_count}{$module}++;
+      $results{args}{$module}	= $args;
+      $results{use_or_require}{$module}	= $use_or_require;
+      warn "This is '$module' in '$results{package}'\n";
+    }
+  }
+
+  # Sometimes a file will have no package name!  If this is the first package, set it
+  # to some default value.
+  if( ! $results{package} ) {
+    $results{package}	= "FILE: $file";
+  }
+
+  if( $inheritance_only ) {
+    $results{used_modules}	= $results{ISA};
+  }
+
+  push @{$self->{results}}, \%results;
+  $self->add_modules( @{$results{used_modules}} );
+}
+
+sub add_modules {
+  my $self		= shift;
+  while( my $module = shift ) {
+    my $file		= module_to_path( $module );
+    next		if( $file =~ $ignore_path_compiled_regexp );
+    $self->add_files( $file )	if( $file );
+  }
+}
+
+sub output_webdot_digraph {
+  my $self		= shift;
+  my $output_file	= shift;
+
+#  print Dumper( $self->{results} );
+  my $OF	        = IO::File->new( ">$output_file" ) || die "Can't open file '$output_file'";
+
+  print $OF "digraph xyz {\n";	# The first line of the digraph structure
+
+  # Now, generate the nodes and lines!
+  foreach my $result ( @{$self->{results}} ) {
+    my $parent_package	= $result->{package};	# This package...
+    # Now, process the @ISA...
+    my %ISA		= ();
+    if( scalar @{$result->{ISA}} and ! $no_inheritance ) {
+      %ISA		= map { $_ => 1 } @{$result->{ISA}};
+    }
+    foreach my $used_module ( @{$result->{used_modules}} ) {
+      my $child_package	= $used_module;
+      if( $ISA{$child_package} ) {
+	print $OF "\"$parent_package\" -> \"$child_package\" [color=green];\n";
+      }
+      else {
+	if( ! $inheritance_edgelines_only ) {
+	  print $OF "\"$parent_package\" -> \"$child_package\";\n";
+	}
+      }
+    }
+  }
+  print $OF "}\n";
+}
+
+##################################################################
+my @files	= @ARGV;
+
+my $CCD		= CCD->new( {}, @files );
+$CCD->parse_files;
+$CCD->output_webdot_digraph( $digraph_file );
+if( $print_object ) {
+  print Dumper( $CCD );
+}

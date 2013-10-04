@@ -1,0 +1,11 @@
+#!/usr/bin/perl -w
+use strict;
+
+use File::Find::Duplicates;
+
+my @dupes = find_duplicate_files('/basedir1', '/basedir2');
+
+foreach my $dupeset (@dupes) {
+  printf "Files %s (of size %d) hash to %s\n",
+    join(", ", @{$dupeset->files}), $dupeset->size, $dupeset->md5;
+}

@@ -1,0 +1,21 @@
+#!/usr/bin/perl -w
+use Getopt::Long;
+
+my $auto	= "";
+
+GetOptions( "-a"	=> \$auto );
+my $safe_option	= "-D";
+if( $auto ) {
+  $safe_option	= "";
+}
+
+if( $safe_option ) {
+  system( "audio_rename", $safe_option, "-K", "-p", "%a - %t", @ARGV );
+}
+else {
+  system( "audio_rename", "-K", "-p", "\%a - \%t", @ARGV );
+}
+
+
+
+

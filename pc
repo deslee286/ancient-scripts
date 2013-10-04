@@ -1,0 +1,6 @@
+#!/usr/bin/perl -w
+use strict;
+my $expression	= join(" ", @ARGV);
+$expression	=~ s/x/\*/g;
+print $expression, ":\n";
+print eval( "$expression" ), "\n";

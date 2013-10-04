@@ -1,0 +1,127 @@
+#!/usr/bin/perl -w
+use strict;
+
+use Getopt::Long;
+my($ignore_most,$ignore_alpha,$ignore_digits)	= (0,0,0);
+
+GetOptions( 'i'		=> \$ignore_most,
+	    'ia'	=> \$ignore_alpha,
+	    'id'	=> \$ignore_digits,
+	  );
+my %charmap	= ();
+my $num_chars	= 0;
+while( <> ) {
+  my @chars	= split //;
+  for( @chars ) {
+    $charmap{$_}++;
+    $num_chars++;
+  }
+}
+my %ordmap	= (
+		   0  => "NUL '\\0'",
+		   1  => "SOH     ",
+		   2  => "STX     ",
+		   3  => "ETX     ",
+		   4  => "EOT     ",
+		   5  => "ENQ     ",
+		   6  => "ACK     ",
+		   7  => "BEL '\\a'",
+		   8  => "BS  '\\b'",
+		   9  => "HT  '\\t'",
+		   10 => "LF '\\n'",
+		   11 => "VT '\\v'",
+		   12 => "FF '\\f'",
+		   13 => "CR '\\r'",
+		   14 => "SO     ",
+		   15 => "SI     ",
+		   16 => "DLE    ",
+		   17 => "DC1    ",
+		   18 => "DC2    ",
+		   19 => "DC3    ",
+		   20 => "DC4    ",
+		   21 => "NAK    ",
+		   22 => "SYN    ",
+		   23 => "ETB    ",
+		   24 => "CAN    ",
+		   25 => "EM     ",
+		   26 => "SUB    ",
+		   27 => "ESC    ",
+		   28 => "FS     ",
+		   29 => "GS     ",
+		   30 => "RS     ",
+		   31 => "US     ",
+		   32 => "SPACE  ",
+		   127=> "DEL   ",
+		  );
+
+
+print "Num chars: $num_chars\n";
+map {
+  my $ord	= ord $_;
+  if( $ord < 33 or $ord > 126 ) {
+    if( $ordmap{$ord} ) {
+      printf "0x%02x: $ordmap{$ord} [%d]\n", $ord, $charmap{$_};
+    }
+    else {
+      printf "0x%02x [%d]\n", $ord, $_, $charmap{$_};
+    }
+  }
+  else {
+    if(( $ord >= 64 and $ord <= 90 ) or ($ord >= 97 and $ord <= 121 ) ) {
+      if( !($ignore_most or $ignore_alpha) ) {
+	print $_, "\t[$charmap{$_}]","\n";
+      }
+    }
+    elsif( $ord >= 48 and $ord <= 57 ) {
+      if( !($ignore_most or $ignore_digits) ) {
+	print $_,"\t[$charmap{$_}]","\n";
+      }
+    }
+    else {
+      if( ! $ignore_most ) {
+	print $_,"\t[$charmap{$_}]","\n";
+      }
+    }
+  }
+} sort keys %charmap;
+
+
+=head1 SYNPOSIS
+
+    > fileinfo [-i] [-ia] [-id] filename
+
+=head1 DESCRIPTION
+
+This script reads in an ascii file and counts the occurences of all
+the characters in the file.  It then spits them out in a report, starting
+with the non-common characters (Escape, ACK, BEL, etc)
+
+This is a way to find problems with ascii files.
+
+The -i option turns off reporting all common ascii characters (between 0x20 [space]
+and 0x73 [tilde])
+
+The -ia option turns off reporting alpha characters.
+
+The -id option turns off reporting the digits.
+
+=head1 EXAMPLES
+
+    > fileinfo -i  report.txt
+
+=head1 NOTE
+
+This script only handles ascii files.
+
+=head1 AUTHOR
+
+Desmond Lee, E<lt>deslee@shaw.caE<gt>
+
+=head1 COPYRIGHT AND LICENSE
+
+Copyright 2003 by Desmond Lee
+
+This library is free software; you can redistribute it and/or modify
+it under the same terms as Perl itself. 
+
+=cut

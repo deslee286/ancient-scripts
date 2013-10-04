@@ -1,0 +1,5 @@
+#!/bin/bash
+alias md="mkdir"
+alias cd="chdir"
+for i in "$1"; do mkdir t; mv "$1" t; mkdir "$1"; cd "$1"; cp -l ../t/"$1" .; uudeview -i -a -c "$1"; cd ..; done
+

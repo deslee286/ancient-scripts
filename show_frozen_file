@@ -1,0 +1,6 @@
+#!/usr/bin/perl -w
+use Storable;
+
+my $ref	= retrieve( shift ) || die "Invalid file!";
+use Data::Dumper;
+print Dumper( $ref );

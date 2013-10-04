@@ -1,0 +1,73 @@
+#!/usr/bin/perl -w
+use strict;
+use String::CRC32;	# Not used yet
+use File::Find;
+use Data::Dumper;
+
+=item find_all_files_in_path $PATH
+
+Uses File::Find to traverse a path and returns a hash whose
+keys are directories, and whose values are a hash of filename => filesize
+pairs.
+
+=cut
+
+sub find_all_files_in_path {
+  my $path		= shift;
+  my %plexed		= ();
+  find( sub {
+	  my $dir	= $File::Find::dir;
+	  my $name	= $File::Find::name;
+	  $name		=~ s/^.*\///;
+#	  my $fullname	= $File::Find::fullname;
+	  my $local_fullname	= $dir . "/" . $name;
+#	  print "LFN: $local_fullname\n";
+	  $plexed{$dir}{$name}  = -s $name;
+	},
+	$path
+      );
+  return %plexed;
+}
+
+=item generate_crcs_for_directories
+
+Generates a unique crc based on the contents of a directory.
+Actual file contents are not used to generate the crcs, only the
+filenames and file sizes.  This will be good enough for our purposes,
+and if they aren't, we can add some code to do actual file comparisons
+after our rough-match has succeeded.
+
+=cut
+
+sub generate_crcs_for_directories {
+  my %dirs		= @_;
+  my %by_dir		= ();
+  foreach my $dir ( keys %dirs ) {
+    my @sorted		= map { [ $_ => $dirs{$dir}{$_} ] } sort keys %{$dirs{$dir}};
+    my $string		= Dumper( \@sorted );
+    $by_dir{$dir}	= crc32( $string );
+  }
+  return %by_dir;
+}
+
+my %plexed		= ();
+while( my $path = shift ) {
+  # Traverse path:
+  %plexed		= (%plexed, find_all_files_in_path( $path ));
+#  print Dumper( \%plexed );
+}
+
+my %by_dir	= generate_crcs_for_directories( %plexed );
+#print Dumper( \%by_dir );
+
+my %by_crc	= ();
+while( my($k, $v) = each %by_dir ) {
+  if( ! $by_crc{$v} ) {
+    $by_crc{$v}	= $k;
+  }
+  else {
+    if( $by_crc{$v} ne $k ) {
+      print "Dup: $by_crc{$v}\t=> $k\n";
+    }
+  }
+}

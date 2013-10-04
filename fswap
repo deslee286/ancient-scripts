@@ -1,0 +1,49 @@
+#!/usr/bin/perl -w
+use strict;
+for( @ARGV ) {
+  if( /^-{1,2}(\?|usage|help)/i ) {
+    usage();
+    exit 1;
+  }
+}
+
+if( scalar @ARGV > 2 or scalar @ARGV < 2 ) {
+  usage();
+  exit 1;
+}
+my( $f1, $f2 )		= @ARGV;
+# Rename file 1 to some other filename:
+my $new_f1		= $f1;
+$new_f1			=~ /([^\/]+)$/;
+my $basename		= $1 . "_" . time . "_" . $$;
+$new_f1			=~ s/[^\/]+$/$basename/e;
+system( "mv", $f1, $new_f1 ) && die "Could not: 'mv $f1 $new_f1'\n";
+system( "mv", $f2, $f1 ) && die "Could not: 'mv $f2 $f1'\n";
+system( "mv", $new_f1, $f2 ) && die "Could not: 'mv $new_f1 $f2'\n";;
+
+##################################################################
+sub usage {
+
+  print <<EOT
+Usage:
+
+      fswap DIR1 DIR2
+
+      fswap FILE1 FILE2
+
+WARNING!  fswap is a dangerous tool - it moves files around like it doesn't
+care.  It gets it's power from being so dangerous, so use at your own risk!
+
+fswap is used to swap two files / directories.
+
+The most common use swaps two filenames - one file is renamed to a temporary
+filename, the other then gets the first file's name, finally the temporary
+filename is changed the second filename.
+
+It also allows you to swap a list of files into a different directory.
+But I don't know if I'd ever use the functionality, maybe not.
+
+EOT
+  ;
+}
+

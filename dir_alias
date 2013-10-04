@@ -1,0 +1,194 @@
+#!/usr/bin/perl -w
+use strict;
+use Getopt::Long;
+use File::Path;
+use PerlScripts::StoreConfig;
+
+$|	= 1;
+my $PROGRAM_NAME		= "dir_alias";
+
+# Stores all the aliases!
+my $ALIASES			= { home	=> $ENV{HOME}
+				  };
+
+$Opt::store		= 0;
+$Opt::exact		= 0;
+$Opt::case_sensitive	= 0;
+GetOptions( "s"	=> \$Opt::store,
+	    "e" => \$Opt::exact,
+	    "c"	=> \$Opt::case_sensitive,
+	  );
+
+my $STORED_DATA		= config_retrieve( $PROGRAM_NAME ) || {};	# Read in the stored aliases
+my $WORKING_ALIASES	= {};
+if( $Opt::case_sensitive ) {
+  $WORKING_ALIASES		= $STORED_DATA;
+}
+else {
+  # Convert all keys to uppercase:
+  foreach my $key ( keys %$STORED_DATA ) {
+    # Note: duplicate keys get hammered...
+    $WORKING_ALIASES->{uc($key)}	= $STORED_DATA->{$key};
+  }
+}
+
+if( $Opt::store ) {
+  # Store the data
+  dir_alias_store( @ARGV );
+}
+else {
+  # Expand/retrieve the data
+  print dir_alias_retrieve( $Opt::exact, @ARGV );
+}
+
+##################################################################
+sub my_die {
+  die @_;
+}
+
+sub dir_alias_store {
+  my $alias	= shift;	# 1st arg is always the alias
+  my $dir	= shift;
+  if( ! defined $dir ) {
+    $dir	= $ENV{PWD};
+  }
+
+  $STORED_DATA->{$alias}	= $dir;
+  config_store( $PROGRAM_NAME, $STORED_DATA ) || die "Error storing config information!";
+  print "Stored alias '$alias' => '$dir'\n";
+}
+
+sub dir_alias_retrieve {
+  my $exact	= shift;
+  my $alias	= shift;
+  if( ! defined $alias ) {
+    usage( "No ALIAS specified!" );
+  }
+  return( $STORED_DATA->{$alias}
+	  || $WORKING_ALIASES->{$alias}
+	  || alias_search( $alias ) );
+}
+
+sub alias_search {
+  my $alias	= uc shift;	# Search will be case insensitive
+
+
+  my $re1	= qr/^$alias/;
+  my $re2	= qr/$alias/;
+  my $re3	= qr/$alias/i;
+
+  foreach my $re ( $re1, $re2, $re3 ) {
+    foreach my $key( %$WORKING_ALIASES ) {
+      if( $key =~ $re ) {
+	return $WORKING_ALIASES->{$key};
+      }
+    }
+  }
+  print STDERR "Could not find any match for alias '$alias'\n\nDefault to './'\n";
+  return "./";
+}
+
+my $USAGE	=<<EOT
+
+See the manpage for dir_alias for more information.
+
+Usage:
+
+  Store current directory under ALIAS:
+  > dir_alias -s ALIAS
+
+  Store a specific directory (DIR) under ALIAS:
+  > dir_alias -s DIR ALIAS
+
+  Retrieve a directory by ALIAS:
+  > dir_alias [-r] [-c] ALIAS
+  (NOTE: this will return any close match to ALIAS if ALIAS is not found)
+
+  Retrieve only the directory aliased to ALIAS:
+  > dir_alias [-r] [-c] -e ALIAS
+
+Options:
+
+  -c: Toggle case sensitivity (default case insensitive)
+  -s: Store mode
+  -r: Retrieve mode (the default)
+  -e: Exact mode
+
+EOT
+;
+
+sub usage {
+  my_die( "\n", @_, "\n\n", $USAGE );
+}
+
+
+=head1 DESCRIPTION
+
+An attempt to make directory navigation even easier, dir_alias
+allows you to associate a directory with an alias easily and with
+persistence.
+
+The best way to use this is to script a function in your .profile:
+
+function go {
+  if [ "$1" == "-s" ];
+  then
+    dir_alias $*
+  else
+    cd `dir_alias $*`
+  fi
+}
+
+You can cache your favorite directories by being in them and
+simply executing
+
+  > go -s ALIAS
+
+to forever save the current directory as ALIAS, then to get
+back there:
+
+  > go ALIAS
+
+Partial matches are supported:
+
+  > go AL
+
+will first return the first match beginning, then containing
+'AL', case sensitive first, then case insensitive.
+
+
+=head1 OPTIONS
+
+  -c: Toggle case sensitivity (default case insensitive)
+  -s: Store mode
+  -r: Retrieve mode (the default)
+  -e: Exact mode
+
+
+=head1 EXAMPLES
+
+  Store current directory under ALIAS:
+  > dir_alias -s ALIAS
+
+  Store a specific directory (DIR) under ALIAS:
+  > dir_alias -s ALIAS DIR
+
+  Retrieve a directory by ALIAS:
+  > dir_alias [-r] [-c] ALIAS
+  (NOTE: this will return any close match to ALIAS if ALIAS is not found)
+
+  Retrieve only the directory aliased to ALIAS:
+  > dir_alias [-r] [-c] -e ALIAS
+
+=head1 AUTHOR
+
+Desmond Lee, E<lt>deslee@shaw.caE<gt>
+
+=head1 COPYRIGHT AND LICENSE
+
+Copyright 2004 by Desmond Lee
+
+This library is free software; you can redistribute it and/or modify
+it under the same terms as Perl itself. 
+
+=cut

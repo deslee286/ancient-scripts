@@ -1,0 +1,57 @@
+#!/usr/bin/perl -w
+use strict;
+use Getopt::Long;
+my $type	= "";
+my $args	= "";
+GetOptions( "t=s"	=> \$type,
+	    "args=s"	=> \$args,
+	  );
+my $size	= shift;
+my @dirs	= @ARGV;
+use Data::Dumper;
+print Dumper( \@dirs );
+if( $size !~ /^\d+$/ ) {
+  push @dirs,$size;
+  $size		= "";
+}
+if( scalar @dirs ) {
+  use format_filename_for_shell;
+  my $dir_args	= format_filename_for_shell( @dirs );
+  use FileHandle;
+  my $FH		= FileHandle->new( "mkisofs -r -l -J -print-size $args $dir_args 2>&1|" )
+    || die "Can't open pipe";
+
+  while( <$FH> ) {
+    if( /Total extents scheduled to be written = (\d+)/ ) {
+      my $extents	= $1;
+      $size		= $extents;
+      last;
+    }
+  }
+}
+if( ! $size ) {
+  die "Error!  No size!\n";
+}
+my $blocks	= 0;
+my $type_to_blocks	= {
+			   fuji		=> 335996,
+			   sony		=> 335848,
+			   kao		=> 335996,
+			   fuji2	=> 333748,
+			   ty		=> 335848,
+			   fl		=> 337048,
+			   tdk		=> 333748,
+			   max		=> 334873,
+			   maxell	=> 334873,
+			   default	=> 332800,
+			   test		=> 335998,
+			   pd		=> 337123,
+			   m80		=> 359622,
+			   acer		=> 335323,
+			  };
+$type		= lc $type || "default";
+$blocks		= $type_to_blocks->{$type} || die "Invalid type: '$type'";
+
+if( $size ) {
+  print( ($blocks - $size)*2048, " bytes free\n");
+}

@@ -1,0 +1,100 @@
+#!/usr/bin/perl -w
+use strict;
+
+use DBI;
+
+use Getopt::Long;
+use IO::File;
+
+my $dsn	= "";
+my $user= "";
+my $pass= "";
+my $q1	= "";
+my $q2	= "";
+my $a1	= "";
+my $a2	= "";
+
+GetOptions( "dsn=s"	=> \$dsn,
+	    "u=s"	=> \$user,
+	    "p=s"	=> \$pass,
+	    "q1=s"	=> \$q1,
+	    "q2=s"	=> \$q2,
+	    "a1=s"	=> \$a1,
+	    "a2=s"	=> \$a2,
+	  );
+
+
+my $DBH	= DBI->connect( $dsn, $user, $pass ) || die "Can't connect to dsn '$dsn'!";
+
+if( ! $q1 ) {
+  usage();
+  exit 1;
+}
+if( ! $q2 and ( $a1 eq "" or $a2 eq "" ) ) {
+  usage();
+  exit 1;
+}
+
+# GET THE DATA
+my($r1,$r2);
+if( $q2 ) {
+  my $sth	= $DBH->prepare( $q1 ) || die "Can't prepare query '$q1' (".$DBH->errstr.")!";
+  my $hashref	= $sth->fetchrow_hashref;
+  $r1		= { %$hashref };	# Make a copy
+  $sth		= $DBH->prepare( $q2 ) || die "Can't prepare query '$q2' (".$DBH->errstr.")!";
+  $hashref	= $sth->fetchrow_hashref;
+  $r2		= { %$hashref };
+}
+else {
+  my $sth	= $DBH->prepare( $q1 ) || die "Can't prepare query '$q1' (".$DBH->errstr.")!";
+  $sth->execute( $a1 ) || die "Can't execute '$q1' with arg '$a1' (".$sth->errstr.")!";
+  my $hashref	= $sth->fetchrow_hashref;
+  $r1		= { %$hashref };
+
+  $sth->execute( $a2 ) || die "Can't execute '$q1' with arg '$a2' (".$sth->errstr.")!";
+  $hashref	= $sth->fetchrow_hashref;
+  $r2		= { %$hashref };
+}
+
+# COMPARE RESULTS
+my %in_r1_not_r2	= ();
+my %in_r2_not_r1	= ();
+my $f1			= "db_row_diff.row1.tmp";
+my $f2			= "db_row_diff.row2.tmp";
+my $F1			= IO::File->new( ">$f1" ) || die "Can't open file '$f1' for write";
+my $F2			= IO::File->new( ">$f2" ) || die "Can't open file '$f2' for write";
+print $F1 ($q2 ? "$q1\n\n" : "$q1 ($a1)\n\n");
+no warnings;
+for( sort keys %$r1 ) {
+  print $F1 "$_\t=> $r1->{$_}\n";
+}
+
+print $F2 ($q2 ? "$q2\n\n" : "$q1 ($a2)\n\n");
+for( sort keys %$r2 ) {
+  print $F2 "$_\t=> $r2->{$_}\n";
+}
+use warnings;
+$F1->close;
+$F2->close;
+system( "sdiff", $f1, $f2 );
+##################################################################
+sub usage {
+
+  print <<EOT
+
+  Usage:
+
+    db_row_diff -dsn DSN -user USER -pass PASS -q1 QUERY [-q2 QUERY2] [-a1 ARG1] [-a2 ARG2]
+
+You can specify one query with two args, or two query with no args.
+
+Eg:
+
+  db_row_diff -dsn dbi:mysql:LDB -user leading -pass leading
+    -q1 "select * from client where client_id = ?"
+    -a1 1 -a2 2
+
+EOT
+  ;
+
+}

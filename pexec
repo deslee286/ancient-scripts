@@ -1,0 +1,138 @@
+#!/usr/bin/perl -w
+use strict;
+use Files;
+use Tk;
+use Tk::Text;
+use Getopt::Long;
+use Tk::TextPicker;
+#use Tk::TextTagLw;
+my $cmd		= "";
+my $cmd2	= "";
+my $cmd3	= "";
+GetOptions( "-cmd=s"	=> \$cmd,
+	    "-cmd2=s"	=> \$cmd2,
+	    "-cmd3=s"	=> \$cmd3,
+	  );
+
+
+my $MAX_HEIGHT	= 50;
+
+my @files	= @ARGV;
+my $num_files	= scalar @files;
+my $text_height	= ($num_files > $MAX_HEIGHT ? $MAX_HEIGHT : $num_files);
+
+my $Top		= MainWindow->new( -title => "pexec - The Perl-Tk Executor" );
+my $Icon	= $Top->iconbitmap( "\@$ENV{HOME}/perl/lib/Tk/pexec.xbm" );
+
+my $Text	= Tk::TextPicker->new
+  ( $Top,
+    -height	=> 25,
+    -width	=> 40,
+    -font	=> '-adobe-helvetica-medium-r-*-*-15-*-*-*-*-*-*-*',
+    -wrap	=> 'none',
+    -setgrid	=> 'yes',
+  )->pack( qw/-side bottom -expand yes -fill both/ );
+
+for( @files ) {
+#  s/\\//g; print "'$_'\n";
+  $Text->add_item( {Tag		=> $_,
+		    Text	=> $_,
+		   }
+		 );
+}
+
+my $Cmd		= setup_command_frame( $cmd, 'primary' );
+
+sub setup_command_frame {
+  my $cmd	= shift;
+  my $primary	= shift || "";
+
+  my $Frame	= $Top->Frame(
+			     )->pack( qw/-side top -expand no -fill both/ );
+  my $Cmd		= $Frame->Entry(
+				       )->pack( qw/-side left -expand no -fill both/ );
+  $Cmd->insert("end", $cmd)	if( $cmd );
+  my $Run	= $Frame->Button(
+				 -text		=> ($primary?'Run<Return>':"Run"),
+				 -takefocus	=> 0,
+				 -command	=> [\&run, $Cmd, $Text],
+				)->pack( -side => 'left' );
+  my $Exec_list	= $Frame->Button(
+				 -text		=> ($primary?'Exec List<Alt-Return>':"Exec List"),
+				 -takefocus	=> 0,
+				 -command	=> [\&exec_selected_files, $Cmd, $Text],
+				)->pack( -side => 'left' );
+  my $Quit	= $Frame->Button(
+				 -text		=> ($primary?'Exec & Close<Alt-x>':"Exec & Close"),
+				 -takefocus	=> 0,
+				 -command	=> sub {exec_selected_files($Cmd,$Text);exit},
+				)->pack( -side => 'left' );
+  return $Cmd;
+}
+  
+#$Text->markSet('insert', "1.0");
+#$Text->focus();
+$Top->bind( "<Return>",		sub {run( $Cmd, $Text )} );
+$Top->bind( "<Alt-Return>",	sub {exec_selected_files( $Cmd, $Text )} );
+$Top->bind( "<Alt-x>", 		sub {exec_selected_files($Cmd, $Text); exit} );
+$Top->bind( "<Escape>",		sub {exit} );
+$Top->bind( "<Alt-s>",		sub {exec_selected_files($Cmd,$Text)} );
+$Text->bind( "<Double-Button-1>",sub {run($Cmd,$Text)} );
+
+if( $cmd2 ) {
+  setup_command_frame( $cmd2 );
+}
+if( $cmd3 ) {
+  setup_command_frame( $cmd3 );
+}
+  
+MainLoop;
+
+# {{{ exec_selected_files >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+sub exec_selected_files {
+  my $Cmd	= shift;
+  my $Text	= shift;
+
+  my $cmd	= $Cmd->get;
+  if( $cmd !~ /\$\$/ ) {
+    $cmd	.= "\$\$";
+  }
+  $cmd		=~ s/\$\$/ \$files /i	|| die "No \$\$ in cmd";
+  
+  my $files	= " ";
+  my @tagged	= ($Text->get_tagged_items);
+  for( @tagged ) {
+    $_->{Text}	=~ s/\n//g;
+#    print "\'$_->{Text}\'\n";
+#    print format_filename_for_shell( $_->{Text} )," ";
+    $files	.= format_filename_for_shell( $_->{Text} )." ";
+  }
+  my $cmd_line	= eval "\"$cmd\"";
+  print `$cmd_line`;
+#  $Top->destroy();
+}
+
+sub run {
+  my $Cmd	= shift;
+  my $Text	= shift;
+
+  my $cmd	= $Cmd->get;
+  if( $cmd !~ /\$\$/ ) {
+    $cmd	.= "\$\$";
+  }
+  $cmd		=~ s/\$\$/ \$files /i	|| die "No \$\$ in cmd";
+  
+  my $files	= " ";
+  my @tagged	= ($Text->get_current_item);
+  for( @tagged ) {
+    $_->{Text}	=~ s/\n//g;
+#    print "\'$_->{Text}\'\n";
+#    print format_filename_for_shell( $_->{Text} )," ";
+    $files	.= format_filename_for_shell( $_->{Text} )." ";
+  }
+  my $cmd_line	= eval "\"$cmd\"";
+  print `$cmd_line`;
+}
+
+# }}}

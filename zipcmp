@@ -1,0 +1,94 @@
+#!/usr/bin/perl -w
+use strict;
+use Getopt::Long;
+my $SIZE		= 0;
+my $CHECKSUM		= 1;
+my $FILENAME		= 2;
+my %FIELD_NAMES		= ( $SIZE	=> "size",
+			    $CHECKSUM	=> "checksum",
+			  );
+my $case_sensitive	= 0;
+my $loud		= 0;
+my $iregexp		= "";
+GetOptions( "s"		=> \$case_sensitive,
+	    "l"		=> \$loud,
+	    "iregexp=s"	=> \$iregexp,
+	  );
+my $c_iregexp		= "";
+if( $iregexp ) {
+  $iregexp		=~ s/^\///;
+  $iregexp		=~ s/\/$//;
+  $c_iregexp		= qr/$iregexp/;
+}
+my @f		= @ARGV;
+if( scalar @f != 2 ) {
+  die "Usage: zipcmp file1 file2\n";
+}
+for( 0, 1 ) {
+  if( ! -f $f[$_] ) {
+    die "File '$f[$_]' does not exist!\n";
+  }
+}
+my @d	= ();
+for( 0, 1 ) {
+  $d[$_]	= split_datas_by_file( lc( `unzip -v $f[$_]` ) );
+}
+use Data::Dumper;
+#print Dumper( \@d );
+my $diff_count		= 0;
+for( [0, 1], [1, 0] ) {
+  my $f1	= $d[$_->[0]];
+  my $f2	= $d[$_->[1]];
+  my $name1	= $f[$_->[0]];
+  my $name2	= $f[$_->[1]];
+  if( $name1 eq $name2 ) {
+    $name1	.= "(1)";
+    $name2	.= "(2)";
+  }
+
+  FILE: foreach my $fn( keys %$f1 ) {
+      next	if( $c_iregexp and $fn =~ $c_iregexp );
+      if( ! exists $f2->{$fn} ) {
+	warn "File: '$fn' does not exist in '$name2'\n"	if( $loud );
+	delete $f1->{$fn};
+	$diff_count++;
+	next;
+      }
+      for( $SIZE, $CHECKSUM ) {
+	if( $f1->{$fn}[$_] ne $f2->{$fn}[$_] ) {
+	  warn "File: '$fn' has different $FIELD_NAMES{$_}: ($f1->{$fn}[$_] != $f2->{$fn}[$_])\n"
+	    if( $loud );
+	  delete $f1->{$fn};
+	  $diff_count++;
+	  next FILE;
+	}
+      }
+    } #FILE:
+}
+if( $diff_count ) {
+  warn "$diff_count differences between files\n"	if( $loud );
+  exit 1;
+}
+exit 0;
+
+sub split_datas_by_file {
+  my $datas	= shift;
+  my @lines	= split /\n/, $datas;
+  my %datas	= ();
+  for( @lines ) {
+    if( /^\s+(\d+).*([a-f0-9]{8})\s+(.+)$/ ) {
+      my( $fn, $size, $checksum )	= ($3,$1,$2);
+      my $orig_filename			= $fn;
+      next	if( $fn =~ /\/\s*$/ );	# Just a directory
+      $fn	=~ s/^.*\///;
+      $fn	= lc $fn	if( ! $case_sensitive );
+      if( exists $datas{$fn} ) {
+	warn "Duplicate filenames not supported($fn)!\n";
+	next;
+      }
+      $datas{$fn}	= [$size, $checksum, $orig_filename];
+    }
+  }
+  return \%datas;
+}
+#  16384  Defl:X    4203  74%  01-01-99  00:00  be09031d   lr3-a-4b.a

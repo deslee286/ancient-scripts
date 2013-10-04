@@ -1,0 +1,44 @@
+#!/usr/bin/perl -wi.orig
+use strict;
+
+
+# Translate a dynamic link to a regular link.
+sub d2s {
+  my $url		= shift;
+
+  my $new_url		= $url;
+  if( $url =~ /(.*)\.(pl|php)\??([^\"]+)?/i ) {
+    my $first		= $1;
+    my $ext		= $2;
+    my $args		= $3 || "";
+    if( $args ) {
+      ;				# Maybe there are some characters that should be translated
+    }
+    $new_url		= $1."_".$args.".html";
+    warn "Translated url '$url' to '$new_url'\n";
+  }
+  else {
+    warn "No translation on url: '$url'\n";
+  }
+  return $new_url;
+}
+
+##################################################################
+# Main routine!
+##################################################################
+my @files		= @ARGV;
+while( <> ) {
+  # Translate all urls!
+  s/\"([^\"]+\.(?:pl|php)(?:\?[^\"]*)?)\"/'"'.d2s($1).'"'/ieg;
+  # We can't translate PNGs with translucency - it just doesn't work.
+#  # Translate png
+#  s/(\"[^\"]+)\.png(\")/$1.".gif".$2/eig;
+  print;
+}
+
+foreach my $fn ( @files ) {
+  my $new_name	= d2s( $fn );
+  if( $new_name ne $fn ) {
+    system( 'mv', $fn, $new_name );
+  }
+}

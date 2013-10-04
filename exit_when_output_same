@@ -1,0 +1,97 @@
+#!/usr/bin/perl -w
+use strict;
+use Getopt::Long;
+
+my $cmd		= "";
+my $time	= 120;
+
+GetOptions( "c=s"		=> \$cmd,
+	    "cmd=s"		=> \$cmd,
+	    "t=s"		=> \$time,
+	    "time=s"		=> \$time,
+	    );
+if( ! $cmd or ! $time ) {
+  usage();
+}
+
+my $old_output	= "";
+do {
+  my $new_output	= `$cmd`;
+  if( $old_output eq $new_output ) {
+    exit 0;
+  }
+  $old_output		= $new_output;
+} while( sleep( $time ) );
+
+sub usage {
+  print <<"EOT";
+
+Usage:
+  exit_when_output_same -c CMD -t TIME
+
+This script runs CMD every TIME seconds.  When the
+output is the same twice, then this script will
+exit.
+
+For example, say I have a download running, but I want
+the computer to shut off when it is complete.  The following
+will work (run as root):
+
+> exit_when_output_same -c df
+shutdown -h now
+
+When the results of 'df' are the same (run with a delay
+of 120 seconds - the default - between them), the script
+will exit, causing the queued command, 'shutdown -h now'
+to run.
+
+You could write the above as:
+
+> exit_when_output_same -c df -t 120; shutdown -h now
+
+But a Ctrl-c in the console would cause the shutdown
+command to run immediately.
+
+EOT
+    ;
+}
+
+
+=head1 SYNPOSIS
+
+    > exit_when_output_same -c 'df -k .' -t 180
+    some_other_command
+
+=head1 DESCRIPTION
+
+The script runs a command periodically, and exits when the output
+of that command is the same twice.
+
+=head1 EXAMPLES
+
+My most common use for this program is to shut down my computer after
+a long download:
+
+    %> exit_when_output_same -c df -t 120
+    shutdown -h now
+
+The shutdown command will execute when the script exits, and can
+be cancelled by hitting <Ctrl-c> in the console.
+
+To kill and restart a hung download process:
+
+    %> exit_when_output_same -c df; killall -9 COMMAND; COMMAND
+
+
+=head1 AUTHOR
+
+Desmond Lee, E<lt>deslee@shaw.caE<gt>
+
+=head1 COPYRIGHT AND LICENSE
+
+Copyright 2003 by Desmond Lee
+
+This library is free software; you can redistribute it and/or modify
+it under the same terms as Perl itself.
+
+=cut

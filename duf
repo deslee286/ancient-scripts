@@ -1,0 +1,54 @@
+#!/usr/bin/perl -w
+my $bytes	= 0;
+while(<>) {
+
+  $bytes	+= (split(/\s+/))[4]||0;
+}
+print "$bytes\n";
+
+
+=head1 SYNPOSIS
+
+Find the total size of all text files:
+
+    > ls -l *.txt | duf
+
+Find the total size of all files in the current directory:
+
+    > ls -l -R | grep -v / | duf
+
+=head1 DESCRIPTION
+
+Parses the output of 'ls -l' and sums the disk usage of each
+file or directory in the listing.  Piping it through 'grep -v /'
+will remove any directory listings and provide you with the
+proper size of the sum of all files listed.
+
+=head1 EXAMPLES
+
+    > fileinfo -i  report.txt
+
+=head1 NOTE
+
+You may have to tweak the program to get it to run under non-Linux
+systems.
+
+Why not use 'df'?
+
+The unix 'df' utility only reports disk space by number of blocks
+consumed.  While it as an option to display the 'apparent-size' of
+files, it must include directory nodes or something, because it
+does not report a sum of the actual file sizes.
+
+=head1 AUTHOR
+
+Desmond Lee, E<lt>deslee@shaw.caE<gt>
+
+=head1 COPYRIGHT AND LICENSE
+
+Copyright 2003 by Desmond Lee
+
+This library is free software; you can redistribute it and/or modify
+it under the same terms as Perl itself. 
+
+=cut

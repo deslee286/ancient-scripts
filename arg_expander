@@ -1,0 +1,123 @@
+#!/usr/bin/perl -w
+use strict;
+use Storable;
+use File::Path;
+use PerlScripts::StoreConfig;
+my $PROGRAM_NAME	= "arg_expander";
+
+my $stored_data		= config_retrieve( $PROGRAM_NAME )
+  || { name_to_file => {} };
+
+my $command	= shift;
+my @ARGS	= @ARGV;
+
+my @NEW_ARGS	= ();
+foreach my $arg( @ARGS ) {
+  if( -f $arg ) {
+    # Store the expansion!
+    if( $arg =~ /^(\~|\/)/ ) {
+      my $filename	= pull_filename_from_arg( $arg );
+      $stored_data->{name_to_file}{$filename}	= $arg;
+    }
+    else {
+      my $filename	= $arg;
+      my $fullpath	= $ENV{PWD}."/".$filename;
+      my $just_filename	= $filename; $just_filename	=~ s/^.*\///;
+      $stored_data->{name_to_file}{$just_filename}	= $fullpath;
+    }
+    push @NEW_ARGS, $arg;
+  }
+  else {
+    # Look for an expansion!
+    if( $stored_data->{name_to_file}{$arg} ) {
+      my $expanded_arg	= $stored_data->{name_to_file}{$arg};
+      push @NEW_ARGS, $expanded_arg;
+      print STDERR "Expansion: '$arg'\t=> '$expanded_arg'\n";
+    }
+    else {
+      push @NEW_ARGS, $arg;
+    }
+  }
+}
+config_store( $PROGRAM_NAME, $stored_data );
+
+exec( $command, @NEW_ARGS );
+
+##################################################################
+sub pull_filename_from_arg {
+  my $arg		= shift;
+  if( $arg =~ /([^\/]+)\/?$/ ) {
+    return $1;
+  }
+  return "";
+}
+
+=head1 SYNPOSIS
+
+ arg_expander command ARG1 ARG2...
+
+ > arg_expander vi kb.txt
+
+ ... now, do somestuff, change directories, etc
+
+ > arg_expander vi kb.txt  <-- will load previous kb.txt
+
+=head1 DESCRIPTION
+
+Hopefully a time-saving utility, arg_expander will associate file
+names with their full path, saving or expanding them depending
+on the situation.
+
+For example, we will alias avi='arg_expander vi'.  Now, we
+call avi to execute 'vi' on a file:
+
+> avi /etc/httpd/conf/httpd2.conf
+
+This stores the association between "httpd2.conf" and the file
+"/etc/httpd/conf/httpd2.conf".
+
+Now to edit the file, we need only do this:
+
+> avi httpd2.conf
+
+And the program will expand "httpd2.conf" to "/etc/httpd/conf/httpd2.conf".
+
+It also works on local files, remembering the filename and where they are
+located.
+
+=head1 CAVEATS
+
+Pay attention when different files have the same name and they are both
+stored in the cache - the cache lookup is done based on name and the time
+of the last access, that is, given two files with the same name on the
+file system, the last one loaded will be expanded.
+
+=head1 OPTIONS
+
+None
+
+=head1 EXAMPLES
+
+Put this in your alias file:
+
+  alias avi='arg_expander vi'
+  alias amore='arg_expander more'
+  alias atail='arg_expander tail'
+  ... etc ...
+
+  > atail /var/logs/httpd/error_log
+
+  > atail error_log   # Does the same as the above from now on
+
+=head1 AUTHOR
+
+Desmond Lee, E<lt>deslee\@shaw.caE<gt>
+
+=head1 COPYRIGHT AND LICENSE
+
+Copyright 2004 by Desmond Lee
+
+This library is free software; you can redistribute it and/or modify
+it under the same terms as Perl itself.
+
+=cut

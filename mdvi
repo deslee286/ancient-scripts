@@ -1,0 +1,3 @@
+#!/bin/sh
+
+latex $1 && latex $1 && xdvi `basename $1 .tex`.dvi

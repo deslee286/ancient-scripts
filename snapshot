@@ -1,0 +1,103 @@
+#!/usr/bin/perl -w
+use strict;
+use File::Path;
+use Getopt::Long;
+
+my $mv		= "";
+my $dir		= $ENV{HOME}."/.snapshot";
+GetOptions( "mv"	=> \$mv,
+	    "dir=s"	=> \$dir,
+	  );
+
+if( ! -d $dir ) {
+  snapshot_init( $dir );
+}
+if( status_ok() ) {
+  make_snapshot( -opts	=> { mv => $mv },
+		 -files	=> [ @ARGV ],
+	       );
+}
+##################################################################
+sub error {
+  die @_;
+}
+sub status_ok {
+  return( -d $dir and -w _ );
+}
+
+sub snapshot_init {
+  my $dir		= shift;
+  if( ! -d $dir ) {
+    mkdir( $dir, 0755 ) || error( "Could not create snapshot directory: '$dir'\n" );
+  }
+}
+my %visited		= ();
+sub visited {
+  my $key		= shift;
+  if( ! $visited{$key} ) {
+    $visited{$key}	= 1;
+    return 0;
+  }
+  return 1;
+}
+sub make_snapshot {
+  my %args		= @_;
+  my @files		= @{$args{-files}};
+  my $snapshot_time	= time;
+  my %visited_files	= ();
+  foreach my $file ( @files ) {
+    if( ! visited $file ) {
+      my $path		= $dir . "/" . $file . "/" . $snapshot_time;
+      eval { mkpath( $path, 0, 0755 ) };
+      if( $@ ) {
+	error "Could not create path '$path'\n";
+      }
+      if( $args{-opts}{mv} ) {
+	print "MOVING '$file' to '$path'\n";
+	system( 'mv', $file, $path );
+      }
+      else {
+	print "COPYING '$file' to '$path'\n";
+	system( 'cp', '-R', $file, $path );
+      }
+    }
+  }
+}
+
+=head1 SYNPOSIS
+
+    > snapshot [-mv] [-dir BACKUP_DIR] THIS_DIR THAT_DIR ...
+
+=head1 DESCRIPTION
+
+Whenever modifying a file, source tree, or other, often it is prudent
+to create a backup of said file or directory for easy reversion.  Creating
+a file with a different extension can clutter up your working directories,
+and copying them somewhere manually can be tedious.  This command will
+do the backup for you in a systematic manner, making it easy to manage
+backups and such.
+
+This script will create .snapshot/ in your home directory, and then will
+back up files in a directory structure as follows:
+
+  ~/.snapshot/FILE_OR_DIRECTORY_NAME/TIME/
+
+The TIME is an integer consisting of the number of seconds since the
+beginning of time.
+
+=head1 EXAMPLES
+
+See the SYNOPSIS.
+
+=head1 AUTHOR
+
+Desmond Lee, E<lt>deslee@shaw.caE<gt>
+
+=head1 COPYRIGHT AND LICENSE
+
+Copyright 2003 by Desmond Lee
+
+This library is free software; you can redistribute it and/or modify
+it under the same terms as Perl itself. 
+
+=cut

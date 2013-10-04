@@ -1,0 +1,103 @@
+#!/usr/bin/perl -w
+use strict;
+use Getopt::Long;
+my $force		= 0;
+my $lowercase		= 0;
+my $automatically	= 0;
+my $uppercase		= 0;
+my $count		= 0;
+
+Getopt::Long::Configure( "pass_through" );
+GetOptions( "-f"	=> \$force,
+	    "-l"	=> \$lowercase,
+	    "-a"	=> \$automatically,
+	    "-u"	=> \$uppercase,
+	  );
+
+sub escape {
+  my $fn	= shift;
+  $fn		=~ s/([ \?\!\|\`\'\"\&\(\)\[\]\@])/\\$1/g;
+  return $fn;
+}
+
+my $regexp	= "";
+if( $lowercase ) {
+  $regexp	= 's/(.*)/lc$1/e';
+}
+elsif( $uppercase ) {
+  $regexp	= 's/(.*)/uc$1/e';
+}
+else {
+  $regexp	= shift;
+}
+
+my $fn;
+#$_		= "_";
+#eval $regexp
+while( $fn = shift ) {
+  $_	= $fn;
+  eval $regexp; ######!!! || warn "no match / error: $@";
+  my $orig_fn	= $fn;
+  my $orig__	= $_;
+  next		if( $orig_fn eq $orig__ );
+  $fn	= escape $fn;
+  $_	= escape $_;
+  my $mv	= "mv ";
+  if( $force ) {
+    $mv	.=	"-f ";
+  }
+  if( $automatically ) {
+    rename( $orig_fn, $orig__ ) || die "Could not rename '$orig_fn' to '$orig__'";
+  } else {
+    print "$mv $fn $_\n";
+  }
+}
+
+
+=head1 SYNPOSIS
+
+    > fnren 's/old_string/new_string/' *.txt [-a] [-l] [-u] [-f]
+
+=head1 DESCRIPTION
+
+This script will batch rename a number of files for you using
+either a perl substitution, or one of the built-in options.
+By default, it spits out a bunch of 'mv' commands, which you can
+scrutinize and then either cut and paste to your console, or re-run
+the command with the -a option.
+
+The -a option will AUTOMATICALLY rename the files for you.  Beware -
+you can mess up your filenames quite easily if you're not careful.
+
+The -f option FORCES the rename, meaning any existing files with the
+same name will be overwritten.  This is a very dangerous option.
+
+The -l option simply forces each filename to lowercase.  Similarly, the
+-u option forces each filename to uppercase.
+
+You can do some fancy things, like below:
+
+=head1 EXAMPLES
+
+Convert files with any uppercase in them to lowercase:
+
+    > fnren -l *[A-Z]*.doc -a
+
+Rename a series of png files so that their file 'number' is 2-digit with
+a leading '0':
+
+    > fnren 's/(\d+)\.png/sprintf("%02d.png",$1)/' frog_anim*.png -a
+
+
+=head1 AUTHOR
+
+Desmond Lee, E<lt>deslee@shaw.caE<gt>
+
+=head1 COPYRIGHT AND LICENSE
+
+Copyright 2003 by Desmond Lee
+
+This library is free software; you can redistribute it and/or modify
+it under the same terms as Perl itself. 
+
+=cut

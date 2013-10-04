@@ -1,0 +1,23 @@
+#!/usr/bin/perl -w
+use strict;
+
+use File::Find::Duplicates;
+
+my @dupes = find_duplicate_files(@ARGV);
+
+foreach my $dupeset (sort { $a->files()->[0] cmp $b->files()->[0] } @dupes) {
+  my @files	= @{$dupeset->files};
+  my $first	= pop @files;
+  my $sep	= "      ";
+  print "rm -f \"".escape($first)."\"\n";
+  print $sep, "rm -f \"", join("'\n".escape($sep)."rm -f \"", @files), "\"\n\n";
+
+#  printf "Files %s (of size %d) hash to %s\n",
+#    join(", ", @{$dupeset->files}), $dupeset->size, $dupeset->md5;
+}
+
+sub escape {
+  my $text	= shift;
+  $text		=~ s/([\'\"\&\?\*\(\)\[\]\!])/\\$1/g;
+  return $text;
+}

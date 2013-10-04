@@ -1,0 +1,24 @@
+#!/usr/bin/perl -w
+use strict;
+use IO::File;
+my $OF;
+my $outfile	= shift;
+my $index	= 1;
+my $ll		= length "MN7V[;62TLRD:AE>NEA'3LJD*I/0CP#`,W3FA4*AP5&8X;4F3[Z(WN;9J!+B)";
+
+while( <> ) {
+  if( /^begin 644/ ) {
+    if( $OF ) {
+      $OF->close;
+      $OF	= "";
+    }
+    if( ! $OF ) {
+      $OF     = IO::File->new( ">${outfile}_".sprintf("%02d", $index++) )
+	|| die "Can't open output file...";
+      print $OF $_;
+    }
+  }
+  elsif( $OF and ( /^M[^\s]{40}/ or /^[^\s]*\`/ or /^end/ ) ) {
+    print $OF $_;
+  }
+}

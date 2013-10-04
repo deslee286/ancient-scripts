@@ -1,0 +1,99 @@
+#!/usr/bin/perl -w
+use strict;
+use File::Path;
+##################################################################
+for( @ARGV ) {
+  if( /^-{1,2}(\?|usage|help)/i ) {
+    usage();
+    last;
+  }
+}
+my $dest_dir	= pop @ARGV;
+
+if( scalar @ARGV == 1 and $ARGV[0] eq $dest_dir ) {
+  die "Silly, you can't move directory '$dest_dir' into itself!\n";
+}
+
+if( ! -e $dest_dir ) {					# Simple move, create directory if desired.
+  print "!   Creating dir: '$dest_dir'\n";
+  exit simple_mv( $dest_dir, @ARGV );
+}
+elsif( -f $dest_dir ) {
+  my $temp_dir	= make_temp_dir_name( $dest_dir );	# Come up with a temp dir name
+  print "!!  Moving files to '$dest_dir' through '$temp_dir'\n";
+  simple_mv( $temp_dir, @ARGV, $dest_dir );		# Move files to that directory
+  print "SMV: '$temp_dir', '$dest_dir'\n";
+  exit system( "mv", $temp_dir, $dest_dir );		# Rename that temp dir
+}
+elsif( -d $dest_dir ) {
+  # Remove $dest_dir from the list of arguments, if it's in there!
+  my %args		= map { $_ => 1 } @ARGV;
+  if( $args{$dest_dir} ) {
+    print "!!! '$dest_dir' will not be moved into itself\n";
+    delete $args{$dest_dir};
+  }
+  @ARGV			= keys %args;
+  for( @ARGV ) {
+    if( -e $dest_dir."/$_" ) {
+      $dest_dir	.= "/" . time . "_" . $$;		# Create a new directory in the existing directory
+      print "!!! Moving files to '$dest_dir'\n";
+      exit simple_mv( $dest_dir, @ARGV );		# Move the files to that directory
+    }
+  }
+  # Otherwise, a simple move!
+  simple_mv( $dest_dir, @ARGV );
+}
+
+##################################################################
+sub make_temp_dir_name {
+  my $dir		= shift;
+  my $temp_dir_name	= time . "_" . $$;
+  $dir			=~ s/[^\/]+$/$temp_dir_name/e;
+  return $dir;
+}
+
+
+sub simple_mv {
+  my $dest_dir	= shift;
+  my @args	= @_;
+  mkpath( $dest_dir, "", 0755 );
+  my %arg_hash	= ();
+  @arg_hash{@args}	= (1) x scalar( @args );
+  @args		= keys %arg_hash;
+#  use Data::Dumper; print Dumper( \%arg_hash );
+  return system( "mv", @args, $dest_dir );
+}
+
+##################################################################
+sub usage {
+  print <<EOT
+Usage:
+
+      smv SOURCE_FILE <SOURCE_FILES> DES
+
+WARNING!  smv may be a little dangerous as it may do something you are
+not expecting.  It's basically a replacement for 'mv' - less flexible,
+more for impatient people.  It tries to guess what you want it to do
+without you having to tell it explicitly.
+
+These are the rules it uses:
+
+* If DEST does not exist, it creates it for you and does the move.
+* If DEST is a file, it creates a temporary directory, moves the
+SOURCE_FILES and the DEST file (regardless if DEST is in
+SOURCE_FILES or not) into that directory, then renames
+the temp directory to DEST.  For example, smv * will move all
+files into a directory who's name is the last argument to smv.
+* If DEST is not writeable, or cannot be created, smv will exit
+with an error.
+* If DEST exists, and is a directory, all SOURCE_FILES will be moved
+to DEST.  If one or more SOURCE_FILES already reside in DEST, then
+a timestamp directory is created in DEST, and all SOURCE_FILES are
+moved to this new directory.  The timestamp directory will be guaranteed
+to be unique (empty) at the time of creation.
+
+EOT
+    ;
+  exit 1;
+}
+

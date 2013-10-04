@@ -1,0 +1,80 @@
+#!/usr/bin/perl -w
+use strict;
+use Getopt::Long;
+use File::Path;
+use makedocs_conf;
+my $no_publish	= 0;
+GetOptions( "no_publish"	=> \$no_publish );
+
+# Setup
+
+# Root cannot run this script!
+if( `whoami` =~ /^root$/ ) {
+  die "Do not run this script as root, please.\n";
+}
+
+# Check for correct environment variables:
+if( ! $ENV{INTRA_DOCS_ROOT} ) {
+  my $intranet_sh_files	= `slocate -r "intranet.sh\$"`;
+  die "Environment variable 'INTRA_DOCS_ROOT' not set!\nSource intranet.sh first!"
+    . "\n($intranet_sh_files)";
+}
+my $INTRA_DOCS_ROOT	= $ENV{INTRA_DOCS_ROOT};
+my $project_dir		= $INTRA_DOCS_ROOT."/".$Global::makedocs::project_dir;
+if( ! -d $project_dir ) {
+  mkpath( $project_dir, 1, 0755 )
+    || die "Can't create projects dir: '$project_dir'\n";
+}
+
+# Do any doxygen stuff, if available.
+#
+# Generate the documentation and then copy it to the appropriate publishing directory.
+my @doxy_files	= <*.doxy>;	# Get list of all doxy files
+for( @doxy_files ) {
+  # Generate the documentation
+  system "doxygen", $_;
+
+  if( ! $no_publish ) {
+    # Find the output directory:
+    my $output_dir	= get_output_directory( $_ );
+    my $project_doxygen_dir	= $project_dir."/doxygen";
+    if( -d $project_doxygen_dir ) {
+      system( "rm -rf $project_doxygen_dir" )
+	&& die "Can't unlink doxygen directory: '$project_doxygen_dir'\n";
+    }
+    system qw/cp -rf/, $output_dir, $project_dir."/doxygen";	# Dir named doxygen
+  }
+}
+
+# Do any Docbook:
+#
+# Generate the html and then copy it to the appropriate directory.
+my @docbook_files	= <*.xml>;
+foreach my $docbook_file ( @docbook_files ) {
+  print "Processing docbook file: '$docbook_file'...\n";
+  system( "docbookxml2html", $docbook_file )
+    && warn "Error creating documentation for file '$docbook_file'\n";
+  my $html_file		= $docbook_file.".html";
+  if( -f $html_file ) {
+    system( "cp -f $html_file $project_dir" );
+  }
+}
+
+# Do all text files:
+#
+# Just copy the files into the right directory:
+if( <*.txt> ) {
+  system( "cp -f *.txt $project_dir" );
+}
+
+# Copy the conf file to the project directory:
+system( "cp -f makedocs_conf.pm $project_dir" );
+
+##################################################################
+sub get_output_directory {
+  my $doxy_file		= shift;
+  my $doxy_od_line	= `grep "OUTPUT_DIRECTORY.*\=" $doxy_file`;
+  $doxy_od_line		=~ /^\s*OUTPUT_DIRECTORY\s*\=\s*(.*)\s*$/;
+  my $output_dir	= $1;
+  return $output_dir;
+}
