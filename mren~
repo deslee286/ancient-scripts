@@ -1,0 +1,295 @@
+#!/usr/bin/perl -w
+use strict;
+
+my $MIN_STR_LEN = 3;
+
+use Getopt::Long;
+my $force		= 0;
+my $lowercase		= 0;
+my $automatically	= 0;
+my $uppercase		= 0;
+my $propercase          = 1;
+my $count		= 0;
+my $pretty		= 1;
+my $music               = 1;
+my $verbose             = 1;
+
+Getopt::Long::Configure( "pass_through" );
+GetOptions( "-f"	=> \$force,
+	    "-l"	=> \$lowercase,
+	    "-a"	=> \$automatically,
+	    "-u"	=> \$uppercase,
+	    "-p"	=> \$pretty,
+	    "-m"        => \$music,
+	    "-v"        => \$verbose,
+	  );
+
+my @pretty	= ();
+
+package MusicFiles;
+
+sub escape {
+  my $fn	= shift;
+  $fn		=~ s/([ \?\!\|\`\'\"\&\(\)\[\]\@])/\\$1/g;
+  return $fn;
+}
+
+sub get_max_str_len {
+    return length( escape( [sort { length( escape( $a ) ) <=> length( escape( $b ) ) } @_]->[-1] ) );
+}
+
+sub new {
+    my $class = shift;
+    my $file_list = shift;
+    my $self = {
+	files=> [ grep { /\.(flac|mp3|ogg|ape|m4v|m4a|aac)$/i } @$file_list ],
+	orig_files => [ grep { /\.(flac|mp3|ogg|ape|m4v|m4a|aac)$/i } @$file_list ],
+    };
+    if( ! scalar @{$self->{files}} ) {
+	die "No music files were specified, eg: mp3, flac, ogg, etc.";
+    }
+    bless $self, $class;
+    $self->debug( "Input Files:\n <--- ", join( "\n <--- ", @$file_list ), "\n" );
+    $self->debug( "Music Files:\n ---> ", join( "\n ---> ", @{$self->{files}} ), "\n" );
+    return $self;
+}
+
+sub debug {
+    my $self = shift;
+    if( $verbose ) {
+	print @_;
+    }
+}
+
+sub regex_match {
+    my $self = shift;
+    my $regex_string = shift;
+    for( @{$self->{files}} ) {
+	return 0 if( ! /$regex_string/ );
+    }
+    return 1;
+}
+
+sub rename_simple {
+    my $self = shift;
+}
+
+sub rename_full {
+    my $self = shift;
+}    
+
+sub regex_sub {
+    my $self = shift;
+    my $regex_match = shift;
+    my $regex_sub = shift;
+    my $global = shift || "";
+    my $execute = shift || "";
+
+#    my @new_strings = ();
+    $self->debug( "regex_sub REGEX: s/$regex_match/$regex_sub/\n" );
+    for( @{$self->{files}} ) {
+	if( $global ) {
+	    if( $execute ) {
+		s/$regex_match/$regex_sub/ge;
+	    }
+	    else {
+		s/$regex_match/$regex_sub/g;
+	    }
+	}
+	elsif( $execute ) {
+	    s/$regex_match/$regex_sub/e;
+	}
+	else {
+	    s/$regex_match/$regex_sub/;
+	}
+#	push @new_strings, $_;
+    }
+#    $self->{files} = [@new_strings];
+    $self->debug( "New files:\n ---> ", join("\n ---> ", @{$self->{files}} ), "\n" );
+}   
+
+sub regex {
+    my $self = shift;
+    my $re = shift;
+    for( @{$self->{files}} ) {
+	$_ =~ $re;
+    }
+}
+
+# Find all substrings greater than MIN_STR_LEN in the list of filenames
+sub find_substrings {
+    my $self = shift;
+    my $shortest_file = [ sort { length( $a ) <=> length( $b ) } @{$self->{files}} ]->[0];
+    $shortest_file =~ s/\.\w{3,4}$//; # Strip off extension
+    $self->debug( "Shortest file: $shortest_file\n" );
+    my @substrings = ();
+
+    # Go through the string and search for substrings:
+    my $min_len = $MIN_STR_LEN;
+    my $str_len = length( $shortest_file );
+    $self->debug( "Min Len: $min_len. Shortest file len: $str_len.\n" );
+    if( $str_len < 6 ) {
+	return;
+    }
+    my $curr_match_len = $min_len;
+    my $curr_start_char = 0;
+
+    my $last_good_substr = "";
+    while( $curr_start_char + $curr_match_len <= $str_len ) {
+	my $search_substr = escape( substr( $shortest_file, $curr_start_char, $curr_match_len ) );
+	$self->debug( "Searching for: $search_substr\n" );
+	
+	if( $self->regex_match( $search_substr ) ) {
+	    $last_good_substr = substr( $shortest_file, $curr_start_char, $curr_match_len );
+	    # Check to see if we've reached the end of the string:
+	    if( $curr_start_char + $curr_match_len == $str_len ) {
+		$self->debug( "Found last substring: $last_good_substr\n" );
+		push @substrings, $last_good_substr;
+		last;
+	    }
+	    $curr_match_len++;
+	}
+	elsif( $last_good_substr ne "" ) {
+	    $self->debug( "Found a good substring: $last_good_substr\n" );
+	    push @substrings, $last_good_substr;
+	    $last_good_substr = "";
+	    $curr_start_char = $curr_start_char + $curr_match_len - 1;
+	    $curr_match_len = $min_len;
+	}
+	else {
+	    $curr_start_char++;
+	}
+	
+    }
+    return @substrings;
+}
+
+sub rename {
+    my $self = shift;
+    my $max_str_len = get_max_str_len( @{$self->{orig_files}} );
+    
+    for( 0 .. scalar( @{$self->{files}} ) - 1 ) {
+	print "mv ", escape( $self->{orig_files}[$_] )
+	    , " "x($max_str_len - length( escape( $self->{orig_files}[$_] ) )), " "
+	    , escape( $self->{files}[$_] ), "\n";
+    }
+}
+
+sub process_files {
+    my $self = shift;
+    my @substrings = $self->find_substrings();
+    $self->debug( "Substrings: ", join( ", ", @substrings ), "\n" );
+    for( @substrings ) {
+	$self->regex_sub( escape( $_ ), "-" );
+    }
+    if( $propercase ) {
+	for( @{$self->{files}} ) {
+	    s/_/ /g;
+	    s/\b(\w)/uc $1/ge;
+	    s/(\.\w{3,4})$/lc $1/e;
+	    s/(\'\w\b)/lc $1/e;
+	    s/^-+//;
+	    s/^(\d{2,3})[ -]+/$1-/;
+	}
+    }
+    $self->debug( "Post-processed files:\n ---> ", join( "\n ---> ", @{$self->{files}} ), "\n" );
+
+    $self->rename();
+}
+
+1;
+
+my $fn;
+#$_		= "_";
+#eval $regexp
+my $mv	= "mv ";
+if( $force ) {
+  $mv	.=	"-f ";
+}
+
+my $MF = new MusicFiles( [@ARGV] );
+$MF->process_files();
+
+#if( $music ) {
+#    musical_chairs( @ARGV );
+#    exit;
+#}
+
+
+if( $pretty ) {
+  my $orig_len = 0;
+  for( @pretty ) {
+    if( length( $_->[0] ) > $orig_len ) {
+      $orig_len = length( $_->[0] );
+    }
+  }
+  for( @pretty ) {
+    my( $old, $new ) = @$_;
+    print "mv $old ";
+    print (" "x($orig_len - length($old) + 2));
+#    print $orig_len - length($old) + 2;
+    print $new, "\n";
+  }
+
+}
+
+sub regex_list_search {
+    my $re = "qr/" . shift() . "/";
+    for( @_ ) {
+	if( $_ !~ $re ) {
+	    return 0;
+	}
+    }
+    return 1;
+}
+
+
+
+=head1 SYNPOSIS
+
+    > fnren 's/old_string/new_string/' *.txt [-a] [-l] [-u] [-f]
+
+=head1 DESCRIPTION
+
+This script will batch rename a number of files for you using
+either a perl substitution, or one of the built-in options.
+By default, it spits out a bunch of 'mv' commands, which you can
+scrutinize and then either cut and paste to your console, or re-run
+the command with the -a option.
+
+The -a option will AUTOMATICALLY rename the files for you.  Beware -
+you can mess up your filenames quite easily if you're not careful.
+
+The -f option FORCES the rename, meaning any existing files with the
+same name will be overwritten.  This is a very dangerous option.
+
+The -l option simply forces each filename to lowercase.  Similarly, the
+-u option forces each filename to uppercase.
+
+You can do some fancy things, like below:
+
+=head1 EXAMPLES
+
+Convert files with any uppercase in them to lowercase:
+
+    > fnren -l *[A-Z]*.doc -a
+
+Rename a series of png files so that their file 'number' is 2-digit with
+a leading '0':
+
+    > fnren 's/(\d+)\.png/sprintf("%02d.png",$1)/' frog_anim*.png -a
+
+
+=head1 AUTHOR
+
+Desmond Lee, E<lt>deslee@shaw.caE<gt>
+
+=head1 COPYRIGHT AND LICENSE
+
+Copyright 2003 by Desmond Lee
+
+This library is free software; you can redistribute it and/or modify
+it under the same terms as Perl itself. 
+
+=cut
+

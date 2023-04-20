@@ -6,19 +6,26 @@ my $lowercase		= 0;
 my $automatically	= 0;
 my $uppercase		= 0;
 my $count		= 0;
+my $pretty		= 1;
+my $music               = 0;
 
 Getopt::Long::Configure( "pass_through" );
 GetOptions( "-f"	=> \$force,
 	    "-l"	=> \$lowercase,
 	    "-a"	=> \$automatically,
 	    "-u"	=> \$uppercase,
+	    "-p"	=> \$pretty,
+	    "-m"        => \$music,
 	  );
+
+my @pretty	= ();
 
 sub escape {
   my $fn	= shift;
   $fn		=~ s/([ \?\!\|\`\'\"\&\(\)\[\]\@])/\\$1/g;
   return $fn;
 }
+
 
 my $regexp	= "";
 if( $lowercase ) {
@@ -34,6 +41,16 @@ else {
 my $fn;
 #$_		= "_";
 #eval $regexp
+my $mv	= "mv ";
+if( $force ) {
+  $mv	.=	"-f ";
+}
+
+if( $music ) {
+    musical_chairs( @ARGV );
+    exit;
+}
+
 while( $fn = shift ) {
   $_	= $fn;
   eval $regexp; ######!!! || warn "no match / error: $@";
@@ -42,15 +59,79 @@ while( $fn = shift ) {
   next		if( $orig_fn eq $orig__ );
   $fn	= escape $fn;
   $_	= escape $_;
-  my $mv	= "mv ";
-  if( $force ) {
-    $mv	.=	"-f ";
-  }
   if( $automatically ) {
     rename( $orig_fn, $orig__ ) || die "Could not rename '$orig_fn' to '$orig__'";
   } else {
-    print "$mv $fn $_\n";
+    if( $pretty ) {
+      push @pretty, [$fn, $_];
+    }
+    else {
+      print "$mv $fn $_\n";
+    }
   }
+}
+if( $pretty ) {
+  my $orig_len = 0;
+  for( @pretty ) {
+    if( length( $_->[0] ) > $orig_len ) {
+      $orig_len = length( $_->[0] );
+    }
+  }
+  for( @pretty ) {
+    my( $old, $new ) = @$_;
+    print "mv $old ";
+    print (" "x($orig_len - length($old) + 2));
+#    print $orig_len - length($old) + 2;
+    print $new, "\n";
+  }
+
+}
+
+sub musical_chairs {
+    my @music_files = grep { /\.(flac|mp3|ogg|ape|m4v|m4a|aac)$/i } @_;
+    print join("\n", @music_files );
+    my $identical = find_identical_substring( @music_files );
+}
+
+sub regex_list_search {
+    my $re = "qr/" . shift() . "/";
+    for( @_ ) {
+	if( $_ !~ $re ) {
+	    return 0;
+	}
+    }
+    return 1;
+}
+
+
+sub find_identical_substring {
+    my @strings = @_;
+    print "\n--> ", join( "\n--> ", @strings ), "\n";
+    my $shortest = [ sort { length( $a ) <=> length( $b ) } @strings ]->[0];
+
+    print $shortest,"\n";
+
+    # Go through the string and search for substrings:
+    my $min_len = 3;
+    my $str_len = length( $shortest );
+    my $curr_match_len = $min_len;
+    my $curr_start_char = 0;
+
+    while( $curr_start_char + $curr_match_len < $str_len ) {
+	my $search_substr = escape( substr( $shortest, $curr_start_char, $curr_match_len ) );
+	print "Searching for: $search_substr\n";
+	if( regex_list_search( $search_substr, @strings ) ) {
+	    
+	}
+	
+    }
+}
+
+sub get_min_substr_length {
+    my $min = 1000000;
+    foreach my $s ( @_ ) {
+	$min = length( $s ) if( length( $s ) < $min );
+    }
 }
 
 
@@ -101,3 +182,4 @@ This library is free software; you can redistribute it and/or modify
 it under the same terms as Perl itself. 
 
 =cut
+
