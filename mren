@@ -1,5 +1,6 @@
 #!/usr/bin/perl -w
 use strict;
+use Cwd;
 
 my $MIN_STR_LEN = 3;
 
@@ -13,6 +14,17 @@ my $count		= 0;
 my $pretty		= 1;
 my $music               = 1;
 my $verbose             = 1;
+my $vverbose            = 1;
+my $vvverbose           = 0;
+my $vvvverbose          = 0;
+my $tag_show            = 0;
+my $tag_update          = 0;
+my $tag_update_automatically = 0;
+my $safe_mode           = 1; # Safe mode skips renaming if there is no track number
+my $mv                  = 0;
+my $exclude             = ""; # Exclude via CWD pattern match, case insensitive match
+my $remix               = 1; # Check to see if it's a remix album
+my $cd_to_track         = 0; # Convert tracks in folders named CD1/Disc1 from 01, 02 to 101, 102, etc
 
 Getopt::Long::Configure( "pass_through" );
 GetOptions( "-f"	=> \$force,
@@ -22,16 +34,42 @@ GetOptions( "-f"	=> \$force,
 	    "-p"	=> \$pretty,
 	    "-m"        => \$music,
 	    "-v"        => \$verbose,
+	    "-vv"       => \$vverbose,
+	    "-vvv"      => \$vvverbose,
+	    "-vvvv"     => \$vvvverbose,
+	    "-ts"       => \$tag_show,
+	    "-tu"       => \$tag_update,
+	    "-tua"      => \$tag_update_automatically,
+	    "-s"        => \$safe_mode,
+	    "-mv"       => \$mv,
+	    "-x=s"      => \$exclude,
+	    "-remix"    => \$remix,
+	    "-cd"       => \$cd_to_track,
 	  );
+
 
 my @pretty	= ();
 
+#print "$tag_show\n";
+#exit;
+
 package MusicFiles;
+use Cwd;
+use MP3::Tag;
+use MP3::Tag::ID3v2;
+use Data::Dumper;
 
 sub escape {
   my $fn	= shift;
-  $fn		=~ s/([ \?\!\|\`\'\"\&\(\)\[\]\@])/\\$1/g;
+  $fn		=~ s/([ \?\!\|\`\'\"\&\(\)\[\]\@\.])/\\$1/g;
   return $fn;
+}
+
+sub trim {
+    my $s = shift;
+    $s =~ s/^\s+//;
+    $s =~ s/\s+$//;
+    return $s;
 }
 
 sub get_max_str_len {
@@ -41,22 +79,55 @@ sub get_max_str_len {
 sub new {
     my $class = shift;
     my $file_list = shift;
-    my $self = {
-	files=> [ grep { /\.(flac|mp3|ogg|ape|m4v|m4a|aac)$/i } @$file_list ],
-	orig_files => [ grep { /\.(flac|mp3|ogg|ape|m4v|m4a|aac)$/i } @$file_list ],
-    };
+
+    my $self = {};
+    bless $self, $class;
+
+    $self->debugvv( "CWD: ", getcwd, "\n" );
+
+    # Quit without doing anything if there is an mren.ignore file in the list:
+    if( scalar( grep { /mren.ignore/i } @$file_list ) ) {
+	die "mren.ignore file found - ignoring folder.";
+    }
+    $self->{files} = [ grep { /\.(flac|mp3|ogg|ape|m4v|m4a|wma|aac)$/i } @$file_list ];
+    $self->{orig_files} = [ grep { /\.(flac|mp3|ogg|ape|m4v|m4a|wma|aac)$/i } @$file_list ];
+
     if( ! scalar @{$self->{files}} ) {
 	die "No music files were specified, eg: mp3, flac, ogg, etc.";
     }
-    bless $self, $class;
-    $self->debug( "Input Files:\n <--- ", join( "\n <--- ", @$file_list ), "\n" );
-    $self->debug( "Music Files:\n ---> ", join( "\n ---> ", @{$self->{files}} ), "\n" );
+    if( scalar( @{$self->{files}} ) < 2 ) {
+	die "Only one music file was found. Cannot process a single file.";
+    }
+    $self->update_topdir();
+    $self->get_artist_and_album();
+
+    $self->debugvvv( "Input Files:\n <--- ", join( "\n <--- ", @$file_list ), "\n" );
+    $self->debugvvv( "Music Files:\n ---> ", join( "\n ---> ", @{$self->{files}} ), "\n" );
     return $self;
 }
 
 sub debug {
     my $self = shift;
-    if( $verbose ) {
+    if( $verbose or $vverbose or $vvverbose ) {
+	print @_;
+    }
+}
+sub debugvv {
+    my $self = shift;
+    if( $vverbose or $vvverbose ) {
+	print @_;
+    }
+}
+
+sub debugvvv {
+    my $self = shift;
+    if( $vvverbose ) {
+	print @_;
+    }
+}
+sub debugvvvv {
+    my $self = shift;
+    if( $vvvverbose ) {
 	print @_;
     }
 }
@@ -64,8 +135,14 @@ sub debug {
 sub regex_match {
     my $self = shift;
     my $regex_string = shift;
+    my $ignorecase = shift || "";
     for( @{$self->{files}} ) {
-	return 0 if( ! /$regex_string/ );
+	if( $ignorecase ) {
+	    return 0 if( ! /$regex_string.*\.\w{3,4}$/i );
+	}
+	else {
+	    return 0 if( ! /$regex_string.*\.\w{3,4}$/ );
+	}
     }
     return 1;
 }
@@ -78,16 +155,52 @@ sub rename_full {
     my $self = shift;
 }    
 
+# Return 1 if the regex returns 1 for all, 0 otherwise
+sub regex_eval {
+    my $self = shift;
+    my $regex_code = shift;
+    my $retval = 1;
+
+    $self->debugvvvv( "regex_code: $regex_code\n" );
+    for( @{$self->{files}} ) {
+	my $rv = eval $regex_code;
+	if( ! $rv ) {
+	    $self->debugvvvv( "regex_code: Return 0 on string '$_'\n" );
+	    return 0;
+	}
+    }
+    $self->debugvvvv( "regex_code: Return 1\n" );
+    return $retval;
+}
+
 sub regex_sub {
     my $self = shift;
     my $regex_match = shift;
     my $regex_sub = shift;
     my $global = shift || "";
     my $execute = shift || "";
+    my $ignorecase = shift || "";
 
 #    my @new_strings = ();
-    $self->debug( "regex_sub REGEX: s/$regex_match/$regex_sub/\n" );
+    $self->debugvv( "regex_sub REGEX: s/$regex_match/$regex_sub/\n" );
     for( @{$self->{files}} ) {
+	if( $ignorecase ) {
+	    if( $global ) {
+		if( $execute ) {
+		    s/$regex_match/$regex_sub/ige;
+		}
+		else {
+		    s/$regex_match/$regex_sub/ig;
+		}
+	    }
+	    elsif( $execute ) {
+		s/$regex_match/$regex_sub/ie;
+	    }
+	    else {
+		s/$regex_match/$regex_sub/i;
+	    }
+	    next;
+	}
 	if( $global ) {
 	    if( $execute ) {
 		s/$regex_match/$regex_sub/ge;
@@ -105,7 +218,7 @@ sub regex_sub {
 #	push @new_strings, $_;
     }
 #    $self->{files} = [@new_strings];
-    $self->debug( "New files:\n ---> ", join("\n ---> ", @{$self->{files}} ), "\n" );
+    $self->debugvvv( "New files:\n ---> ", join("\n ---> ", @{$self->{files}} ), "\n" );
 }   
 
 sub regex {
@@ -119,15 +232,25 @@ sub regex {
 # Find all substrings greater than MIN_STR_LEN in the list of filenames
 sub find_substrings {
     my $self = shift;
+    if( $remix ) {
+	# If we are to check for remix albums, we look for common remix wording
+	# in the filenames. If they are all present, we will not remove any
+	# common substrings in the filenames because that could remove the song
+	# title.
+	if( $self->regex_eval( '/Mix|Version|Edit|Dub|Radio|Formula|\(.*\)/' ) ) {
+	    $self->debug( "###### Determined this album is a remix. No substrings will be removed. ######\n" );
+	    return ();
+	}
+    }
     my $shortest_file = [ sort { length( $a ) <=> length( $b ) } @{$self->{files}} ]->[0];
     $shortest_file =~ s/\.\w{3,4}$//; # Strip off extension
-    $self->debug( "Shortest file: $shortest_file\n" );
+    $self->debugvv( "Shortest file: $shortest_file\n" );
     my @substrings = ();
 
     # Go through the string and search for substrings:
     my $min_len = $MIN_STR_LEN;
     my $str_len = length( $shortest_file );
-    $self->debug( "Min Len: $min_len. Shortest file len: $str_len.\n" );
+    $self->debugvv( "Min Len: $min_len. Shortest file len: $str_len.\n" );
     if( $str_len < 6 ) {
 	return;
     }
@@ -137,20 +260,27 @@ sub find_substrings {
     my $last_good_substr = "";
     while( $curr_start_char + $curr_match_len <= $str_len ) {
 	my $search_substr = escape( substr( $shortest_file, $curr_start_char, $curr_match_len ) );
-	$self->debug( "Searching for: $search_substr\n" );
+	$self->debugvvv( "Searching for: $search_substr\n" );
 	
-	if( $self->regex_match( $search_substr ) ) {
+	if( $self->regex_match( $search_substr, 1 ) ) {
 	    $last_good_substr = substr( $shortest_file, $curr_start_char, $curr_match_len );
 	    # Check to see if we've reached the end of the string:
 	    if( $curr_start_char + $curr_match_len == $str_len ) {
-		$self->debug( "Found last substring: $last_good_substr\n" );
+		$self->debugvvv( "Found last substring: $last_good_substr\n" );
 		push @substrings, $last_good_substr;
 		last;
 	    }
 	    $curr_match_len++;
 	}
 	elsif( $last_good_substr ne "" ) {
-	    $self->debug( "Found a good substring: $last_good_substr\n" );
+	    $self->debugvvv( "Found a good substring: $last_good_substr\n" );
+	    # Hack: Sometimes the most significant digit of the track
+	    # winds up as part of the substring. If there are digits at the
+	    # end, we can remove one digit from the substring:
+	    if( $search_substr =~ /\d\d$/ ) {
+		chop $last_good_substr;
+	    }
+
 	    push @substrings, $last_good_substr;
 	    $last_good_substr = "";
 	    $curr_start_char = $curr_start_char + $curr_match_len - 1;
@@ -164,18 +294,21 @@ sub find_substrings {
 
     # The way this was implemented would allow a shorter
     # substring that is part of another substring to match
-    # and be removed erroneously, so remove those:
+    # and be removed erroneously, so remove those by
+    # Checking that they all match while removing the
+    # substitutions, starting with the longer substrings
     my %files = map{ $_ => $_ } @{$self->{files}};
-
+    
     my @true_substrings = ();
-    foreach my $substring ( @substrings ) {
-	$self->debug( "Looking for '$substring'\n" );
+    foreach my $substring ( sort { length( $b ) <=> length( $a ) } @substrings ) {
+	$self->debugvvv( "Looking for '$substring'\n" );
 	while( my ($k, $v) = each %files ) {
-	    $self->debug( "$k\tvs $v\n" );
+	    $self->debugvvv( "$k\tvs $v\n" );
 	    my $orig_v = $v;
-	    $v =~ s/$substring/-/i;
+	    my $ss = escape( $substring );
+	    $v =~ s/$ss/-/i;
 	    if( $orig_v eq $v ) { # No change
-		$self->debug( "NC. " );
+		$self->debugvv( "NC. " );
 		$substring = "";
 		$files{$k} = $v; # Save the change
 		last;
@@ -183,112 +316,326 @@ sub find_substrings {
 	    $files{$k} = $v; # Save the change
 	}
 	if( $substring ) {
-	    $self->debug( "Found: $substring\n" );
+	    $self->debugvvv( "Found: '$substring'\n" );
 	    push @true_substrings, $substring;
 	}
-	
     }
+
+    @true_substrings = sort { length( $b ) <=> length( $a ) } @true_substrings;
+    @true_substrings = $self->remove_partial_parens( @true_substrings );
+    @true_substrings = grep { !/^ - $/ } @true_substrings;
     return @true_substrings;
 }
 
+
+sub remove_partial_parens {
+    my $self = shift;
+    my @substrings = ();
+    
+    foreach( @_ ) {
+	if( ! /\)/ ) {
+	    push @substrings, $_;
+	    next;
+	}
+	if( /\(/ ) {
+	    push @substrings, $_;
+	    next;
+	}
+    }
+    return @substrings;
+}
+
+    
 sub rename {
     my $self = shift;
     my $max_str_len = get_max_str_len( @{$self->{orig_files}} );
-    my $mv = "mv ";
+    my $xmv = "mv ";
     if( $automatically ) {
-	$mv .= "-f ";
+	$xmv .= "-f ";
     }
     
     for( 0 .. scalar( @{$self->{files}} ) - 1 ) {
 	my $orig_fn = escape( $self->{orig_files}[$_] );
 	my $new_fn = escape( $self->{files}[$_] );
-
+	if( ! $mv ) {
+	    $orig_fn = $self->{orig_files}[$_];
+	    $new_fn = $self->{files}[$_];
+	}
+	my $ofn = $self->{orig_files}[$_];
+	my $nfn = $self->{files}[$_];
+	
 	if( $orig_fn eq $new_fn ) {
+	    print $xmv, $new_fn, " (SAME)", "\n";
 	    next;
 	}
-	print $mv, $orig_fn
-	    , " "x($max_str_len - length( $orig_fn )), " "
+	print $xmv, $orig_fn
+	    , " "x($max_str_len - length( $orig_fn )), "    "
 	    , $new_fn, "\n";
 	if( $automatically ) {
-	    rename( $orig_fn, $new_fn ) || die "Could not rename '$orig_fn' to '$new_fn'";
-	    
+	    rename( $ofn, $nfn ) || die "Could not rename '$ofn' to '$nfn'";
 	}
     }
 
 }
 
+
 sub process_files {
     my $self = shift;
-    my @substrings = $self->find_substrings();
-    $self->debug( "Substrings: ", join( ", ", @substrings ), "\n" );
-    for( @substrings ) {
-	$self->regex_sub( escape( $_ ), "-" );
+
+    # Preprocess by doing some common things:
+    # Disc #/ CD# and track joining:
+    if( $self->regex_eval( '/(disc|cd)\s*\d[\s\-_]+\d\d/i' ) ) {
+	$self->regex_eval( 's/(disc|cd)\s*(\d)[\s\-_]+(\d\d)/$2$3/i' );
     }
+    # Some naming conventions use a ')' after the number, this sucks so remove it:
+    if( $self->regex_eval( '/^\d+\)/' ) ) {
+	$self->regex_eval( 's/^(\d+)\)/$1./' );
+    }
+    # Disc/Track:
+#    if( $self->regex_eval( '/^\d+[\ \-_]\d{2}/
+    
+    my @substrings = $self->find_substrings();
+    $self->debugvvv( "SUBSTRINGS: ", join( ", ", @substrings ), "\n" );
+    for( @substrings ) {
+	$self->regex_sub( escape( $_ ), "-", 0, 0, 1 );
+    }
+    if( $self->regex_match( "^0\\d\\d" ) ) {
+	# Remove leading zero:
+	$self->regex_sub( "^0", "" );
+    }
+    
     if( $propercase ) {
 	for( @{$self->{files}} ) {
+	    $self->debugvvvv( "YAB: ", $_, "\n" );
+	    $_ = lc( $_ );
+
+	    # Files may start with one or more dashes due to the removal of common strings,
+	    # they must be removed:
+	    s/^-+//;
+	    
+	    # If the title is just a number, then end processing:
+	    if( /^\d+\.\w{3,4}$/ ) {
+		$self->debug( "Skipping processing on file: '$_'\n" );
+		next;
+	    }
+	    $self->debugvvvv( $_, "\n" );
+	    # Numbering
+	    s/^(\d)[_\-](\d\d)\b/$1$2/;	    # If 1-XX, 2-XX, etc (track titles), join them:
+	    $self->debugvvvv( $_, "\n" );
+	    s/^(\d\d?)\s\./$1./;            # Remove space between a leading number and period
+	    $self->debugvvvv( $_, "\n" );
+	    if( $self->all_begin_with_number() ) {
+		s/^(\d)\b/0$1/;                 # Single numbers get a prepended 0
+		$self->debugvvvv( $_, "\n" );
+		s/^(\d+)[\s\.\-]*(\D)/$1. $2/;  # Format to "00. Name"
+		$self->debugvvvv( $_, "\n" );
+		s/^(\d+)\ /$1./;
+	    }
+#	    print $_, "\n";
+
 	    s/_/ /g;                   # Remove underscores
 	    s/\b(\w)/uc $1/ge;         # Propercase words
 	    # Do not capitalize articles, conjuctions, prepositions:
-	    s/\b(The|A|An|And|From|In)\b/lc $1/ge;
+	    s/\b(The|But|By|A|An|And|For|In|On|Of|Or|In|My|To|Vs)\b/lc $1/ge;
+	    # But capitalize The at the start of a title or sentence:
+#	    $self->debugvv( $_, "\n" );
+	    s/([\.\d]\s*)the\b/$1The/g;
+	    # Also, capitalize any of these words if it's the last word:
+	    s/\b(the|but|by|a|an|and|for|from|in|on|of|or|in|my|to)(\.| ?[\(\)\[\]])/\u\L$1$2/g;
+	    
+#	    print $_, "\n";
+#	    $self->debugvv( $_, "\n" );
 	    # Unless they come after a semicolon, colon, or period, etc:
 	    s/([\.\;\:\(\-]\s*\w)/uc $1/ge;
 	    s/(\.\w{3,4})$/lc $1/e;    # Ensure extension is lowercase
-	    s/(\'\w\b)/lc $1/e;        # 
+	    s/(\'\w\b)/lc $1/e;        #
+	    s/(\'(Ve|Re))\b/lc $1/e;             # Should've
 	    s/^-+//;
 	    s/-*(\.\w{3,4})$/$1/;      # Eliminate dashes at end of title
-	    s/^(\d{2,3})[ -]+/$1-/;
+	    s/^(\d{2,3})[\ \-]+/$1./;
+	    s/^\(//g;                  # Remove leading open brackets
+	    s/^(\d{2,3})[\)\-]/$1. /;        # Use a period to separate track from title
+	    s/Ain\'T/Ain\'t/g;
+	    s/\'N\b/\'n/g;
+	    s/\.+(flac|mp3|ogg|ape|m4v|m4a|wma|aac)$/\.$1/;
+	    s/^(\w)/uc $1/e;
+	    s/\b(Ll)\b/ll/g;
+	    s/[ -]+\././;
+#	    s/^(\d+)\.\s+/$1. /;
+	    # Capitalize first word:
+	    s/^(\d+\. )(\w)/$1.uc($2)/e;
+	    # Handle roman numerals:
+	    s/\b(Ii|Iii|Iv|Vi|Vii|Viii|Ix|Xi|Xii|Xiii)\b/uc $1/ge;
+	    # Misc acronyms:
+	    s/\b(UFC|LP|NRG|B1A4|DJ|BPM)\b/uc $1/ige;
+	    # Various cleanup:
+	    s/\'S\b/'s/g;             # Change 'S to 's
+	    s/^(\d+\. )\-/$1/;        # Sometimes a dash ends up at the beginning of the name - remove it
+#	    print $_, "\n";
+	    s/^\s+//;	              # Remove leading spaces:
+	    s/\s+/ /g;                # Multiple spaces to one space
+	    s/\s+(\w+)$/lc $1/e;      # Fix any erroneous extension names
+	    if( $self->regex_eval( '/^\d+[\.\ \-_]+\d{2}/' ) ) {
+		s/^(\d+)[\.\ \-_]+(\d{2})/$1.$2/; # Fix when DD..TT (Disc#.Track#)
+	    }
 	}
     }
-    $self->debug( "Post-processed files:\n ---> ", join( "\n ---> ", @{$self->{files}} ), "\n" );
+
+    # Check for CD1, Disc1, etc:
+    if( $self->regex_eval( '/^\d\d\b/' ) ) {
+	if( $self->{topdir} =~ /(disc|cd)\s*(\d+)\/?$/i ) {
+	    $self->prepend( $2 );
+	}
+    }
+    
+    $self->debugvvv( "Post-processed files:\n ---> ", join( "\n ---> ", @{$self->{files}} ), "\n" );
+    my $all_begin_with_number = $self->all_begin_with_number();
+    if( $safe_mode and not $all_begin_with_number ) {
+	die "###\n### Could not extract track numbers. Stopping due to -s (safe mode).\n###\n";
+    }
 
     $self->rename();
 }
 
-1;
+sub prepend {
+    my $self = shift;
+    my $string = shift;
+    die "No string passed to prepend." if( ! defined $string or $string eq "" );
 
-my $fn;
-#$_		= "_";
-#eval $regexp
-my $mv	= "mv ";
-if( $force ) {
-  $mv	.=	"-f ";
-}
-
-my $MF = new MusicFiles( [@ARGV] );
-$MF->process_files();
-
-#if( $music ) {
-#    musical_chairs( @ARGV );
-#    exit;
-#}
-
-
-if( $pretty ) {
-  my $orig_len = 0;
-  for( @pretty ) {
-    if( length( $_->[0] ) > $orig_len ) {
-      $orig_len = length( $_->[0] );
+    for( @{$self->{files}} ) {
+	$_ = $string . $_;
     }
-  }
-  for( @pretty ) {
-    my( $old, $new ) = @$_;
-    print "mv $old ";
-    print (" "x($orig_len - length($old) + 2));
-#    print $orig_len - length($old) + 2;
-    print $new, "\n";
-  }
-
 }
 
-sub regex_list_search {
-    my $re = "qr/" . shift() . "/";
-    for( @_ ) {
-	if( $_ !~ $re ) {
-	    return 0;
+sub all_begin_with_number {
+    my $self = shift;
+    if( $self->regex_match( "^[\-\(]?\\d" ) ) {
+	$self->debugvvv( "All Begin With Number.\n" );
+	return 1;
+    }
+    return 0;
+}
+
+sub update_topdir {
+    my $self = shift;
+    my $cwd = getcwd;
+    $cwd =~ s/.*\///;
+    $self->{topdir} = $cwd;
+    $self->debugvv( "   Topdir: $cwd\n" );
+}
+
+sub get_artist_and_album() {
+    my $self = shift;
+    die "Topdir not set." if ! $self->{topdir};
+    my $s = $self->{topdir};
+
+    my($year,$artist,$album,$format,$comment) = ("","","","","");
+    if( $s =~ /[\(\[](\d{4})[\)\]]/ ) {
+	# Extract  year:
+	$year = $1;
+	$s =~ s/\s*[\(\[](\d{4})[\)\]]\s*//;
+    }
+    if( $s =~ /^\s*(\d{4})( - |-| )/ ) {
+	$year = $1;
+	$s =~ s/^\s*(\d{4})( - |-| )//;
+    }
+    if( $s =~ /[\(\[](flac|ape|mp3|320)[\)\]]/i ) {
+	$format = lc( $1 );
+	$s =~ s/[\(\[](flac|ape|mp3|320)[\)\]]\s*//i;
+    }
+
+    # Artist/album:
+    if( $s =~ /(.*) - (.*)/ ) {
+	$artist = trim( $1 );
+	$album = trim( $2 );
+    }
+    else {
+	# Just abum, we assume:
+	$album = $s;
+    }
+
+    if( ! $artist ) {
+	my $cwd = getcwd;
+	if( $cwd =~ /.*\/([^\/]+)\/[^\/]+$/ ) {
+	    $artist = $1;
 	}
     }
-    return 1;
+    
+    $self->debugvv( "   Artist:  $artist\n",
+		    "   Album:   $album\n",
+		    "   Year:    $year\n",
+		    "   Format:  $format\n",
+		    "   Comment: $comment\n",
+	);
+    $self->{artist} = $artist;
+    $self->{album} = $album;
+    $self->{year} = $year;
+    $self->{format} = $format;
+    $self->{comment} = $comment;
 }
+sub tag_update {
+    my $self = shift;
+}
+
+sub tag_show {
+    my $self = shift;
+    for( @{$self->{orig_files}} ) {
+	my $mp3 = MP3::Tag->new($_);
+	$mp3->get_tags();
+	if( exists $mp3->{ID3v2} ) {
+	    my $id3v2 = $mp3->{ID3v2};
+	    $self->debugvv( "ID3v2 tag found.\n" );
+#	    $self->debugvvv( Dumper( $id3v2 ) );
+	    
+	}
+	else {
+	    $self->debugvv( "ID3v1 tag found.\n" );
+#	    $self->debugvvv( Dumper( $mp3 ) );
+	}
+
+	my ($title, $track, $artist, $album, $comment, $year, $genre) = $mp3->autoinfo();
+	$self->debug( "$artist - $year - $album : $track . $title ($comment)\n" );
+
+	my ($title_new, $track_new, $artist_new, $album_new, $year_new) = $self->autoinfo( $_ );
+	$self->debug( " `--> $title_new - $year_new - $album_new : $track_new . $title_new\n" );
+#	print Dumper( $mp3 );
+
+    }
+}
+
+sub autoinfo {
+    my $self = shift;
+    my($title, $track, $artist, $album, $year) = ();
+}
+
+sub process_tags {
+    my $self = shift;
+    if( $tag_show ) {
+	$self->tag_show();
+	return;
+    }
+    if( $tag_update || $tag_update_automatically ) {
+	$self->tag_update();
+    }
+}
+
+1;
+
+#my $fn;
+##$_		= "_";
+##eval $regexp
+#my $xmv	= "mv ";
+#if( $force ) {
+#  $xmv	.=	"-f ";
+#}
+
+my $MF = new MusicFiles( [@ARGV] );
+if( $tag_show || $tag_update || $tag_update_automatically ) {
+    $MF->process_tags();
+} else {
+    $MF->process_files();
+}
+
 
 
 
