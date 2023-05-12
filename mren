@@ -13,18 +13,22 @@ my $propercase          = 1;
 my $count		= 0;
 my $pretty		= 1;
 my $music               = 1;
-my $verbose             = 1;
-my $vverbose            = 1;
+my $verbose             = 0;
+my $vverbose            = 0;
 my $vvverbose           = 0;
 my $vvvverbose          = 0;
 my $tag_show            = 0;
 my $tag_update          = 0;
 my $tag_update_automatically = 0;
-my $safe_mode           = 1; # Safe mode skips renaming if there is no track number
+my $safe_mode           = 0; # Safe mode skips renaming if there is no track number
 my $mv                  = 0;
 my $exclude             = ""; # Exclude via CWD pattern match, case insensitive match
 my $remix               = 1; # Check to see if it's a remix album
 my $cd_to_track         = 0; # Convert tracks in folders named CD1/Disc1 from 01, 02 to 101, 102, etc
+my $relyric             = 0; # Redownload lyrics?
+my $nolyrics            = 0; # Do not download lyrics
+
+my $is_remix            = 0;
 
 Getopt::Long::Configure( "pass_through" );
 GetOptions( "-f"	=> \$force,
@@ -45,6 +49,8 @@ GetOptions( "-f"	=> \$force,
 	    "-x=s"      => \$exclude,
 	    "-remix"    => \$remix,
 	    "-cd"       => \$cd_to_track,
+	    "-relyric"  => \$relyric,
+	    "-nolyrics" => \$nolyrics,
 	  );
 
 
@@ -58,7 +64,8 @@ use Cwd;
 use MP3::Tag;
 use MP3::Tag::ID3v2;
 use Data::Dumper;
-
+use LyricFinder::Musixmatch;
+ 
 sub escape {
   my $fn	= shift;
   $fn		=~ s/([ \?\!\|\`\'\"\&\(\)\[\]\@\.])/\\$1/g;
@@ -70,6 +77,18 @@ sub trim {
     $s =~ s/^\s+//;
     $s =~ s/\s+$//;
     return $s;
+}
+
+sub fix_missing_single_quotes {
+    my $text = shift;
+    $text =~ s/\bain t\b/ain't/gi;
+    $text =~ s/\b t\b/'t/g;
+    $text =~ s/struttin /struttin'/gi;
+    $text =~ s/lookin /lookin'/gi;
+
+    $text =~ s/ til\b/'til/gi;
+    $text =~ s/\b//gi;
+    return $text;
 }
 
 sub get_max_str_len {
@@ -89,13 +108,23 @@ sub new {
     if( scalar( grep { /mren.ignore/i } @$file_list ) ) {
 	die "mren.ignore file found - ignoring folder.";
     }
+    # Check if manually set as a remix:
+    if( scalar( grep { /mren.remix/i } @$file_list ) ) {
+	$is_remix = 1;
+    }
+    # Check to see if we skip this folder:
+    if( scalar( grep { /mren.skip/i } @$file_list ) ) {
+	die "mren.skip file found - ignoring folder.";
+    }
+    
+    
     $self->{files} = [ grep { /\.(flac|mp3|ogg|ape|m4v|m4a|wma|aac)$/i } @$file_list ];
     $self->{orig_files} = [ grep { /\.(flac|mp3|ogg|ape|m4v|m4a|wma|aac)$/i } @$file_list ];
 
     if( ! scalar @{$self->{files}} ) {
 	die "No music files were specified, eg: mp3, flac, ogg, etc.";
     }
-    if( scalar( @{$self->{files}} ) < 2 ) {
+    if( scalar( @{$self->{files}} ) < 2 and not( $tag_show or $tag_update ) ) {
 	die "Only one music file was found. Cannot process a single file.";
     }
     $self->update_topdir();
@@ -103,6 +132,11 @@ sub new {
 
     $self->debugvvv( "Input Files:\n <--- ", join( "\n <--- ", @$file_list ), "\n" );
     $self->debugvvv( "Music Files:\n ---> ", join( "\n ---> ", @{$self->{files}} ), "\n" );
+
+    # create a new finder object:
+    my $finder = new LyricFinder::Musixmatch();
+    $self->{finder} = $finder;
+ 
     return $self;
 }
 
@@ -232,15 +266,20 @@ sub regex {
 # Find all substrings greater than MIN_STR_LEN in the list of filenames
 sub find_substrings {
     my $self = shift;
+
     if( $remix ) {
 	# If we are to check for remix albums, we look for common remix wording
 	# in the filenames. If they are all present, we will not remove any
 	# common substrings in the filenames because that could remove the song
 	# title.
-	if( $self->regex_eval( '/Mix|Version|Edit|Dub|Radio|Formula|\(.*\)/' ) ) {
+	
+	if( $is_remix
+	    or $self->regex_eval( '/Mix|Version|Edit|Dub|Radio|Formula|\(.{4,}\)/i' )
+	    or getcwd =~ /remixes/i ) {
 	    $self->debug( "###### Determined this album is a remix. No substrings will be removed. ######\n" );
 	    return ();
 	}
+	    
     }
     my $shortest_file = [ sort { length( $a ) <=> length( $b ) } @{$self->{files}} ]->[0];
     $shortest_file =~ s/\.\w{3,4}$//; # Strip off extension
@@ -333,7 +372,7 @@ sub remove_partial_parens {
     my @substrings = ();
     
     foreach( @_ ) {
-	if( ! /\)/ ) {
+	if( ! /\)\s*$/ ) {            # I can't remember the condition for this
 	    push @substrings, $_;
 	    next;
 	}
@@ -435,6 +474,7 @@ sub process_files {
 
 	    s/_/ /g;                   # Remove underscores
 	    s/\b(\w)/uc $1/ge;         # Propercase words
+	    $self->debugvvvv( $_, "\n" );
 	    # Do not capitalize articles, conjuctions, prepositions:
 	    s/\b(The|But|By|A|An|And|For|In|On|Of|Or|In|My|To|Vs)\b/lc $1/ge;
 	    # But capitalize The at the start of a title or sentence:
@@ -442,6 +482,7 @@ sub process_files {
 	    s/([\.\d]\s*)the\b/$1The/g;
 	    # Also, capitalize any of these words if it's the last word:
 	    s/\b(the|but|by|a|an|and|for|from|in|on|of|or|in|my|to)(\.| ?[\(\)\[\]])/\u\L$1$2/g;
+	    $self->debugvvvv( $_, "\n" );
 	    
 #	    print $_, "\n";
 #	    $self->debugvv( $_, "\n" );
@@ -457,7 +498,8 @@ sub process_files {
 	    s/^(\d{2,3})[\)\-]/$1. /;        # Use a period to separate track from title
 	    s/Ain\'T/Ain\'t/g;
 	    s/\'N\b/\'n/g;
-	    s/\.+(flac|mp3|ogg|ape|m4v|m4a|wma|aac)$/\.$1/;
+	    $self->debugvvvv( $_, "\n" );
+	    s/\.(flac|mp3|ogg|ape|m4v|m4a|wma|aac)$/\.$1/;
 	    s/^(\w)/uc $1/e;
 	    s/\b(Ll)\b/ll/g;
 	    s/[ -]+\././;
@@ -467,7 +509,8 @@ sub process_files {
 	    # Handle roman numerals:
 	    s/\b(Ii|Iii|Iv|Vi|Vii|Viii|Ix|Xi|Xii|Xiii)\b/uc $1/ge;
 	    # Misc acronyms:
-	    s/\b(UFC|LP|NRG|B1A4|DJ|BPM)\b/uc $1/ige;
+	    s/\b(UFC|LP|NRG|B1A4|DJ|BPM|SOS|YYZ|YVR|SA|LL|LMFAO|CC|UB40|WLS)\b/uc $1/ige;
+	    $self->debugvvvv( "X", $_, "\n" );
 	    # Various cleanup:
 	    s/\'S\b/'s/g;             # Change 'S to 's
 	    s/^(\d+\. )\-/$1/;        # Sometimes a dash ends up at the beginning of the name - remove it
@@ -475,6 +518,7 @@ sub process_files {
 	    s/^\s+//;	              # Remove leading spaces:
 	    s/\s+/ /g;                # Multiple spaces to one space
 	    s/\s+(\w+)$/lc $1/e;      # Fix any erroneous extension names
+	    $self->debugvvvv( $_, "\n" );
 	    if( $self->regex_eval( '/^\d+[\.\ \-_]+\d{2}/' ) ) {
 		s/^(\d+)[\.\ \-_]+(\d{2})/$1.$2/; # Fix when DD..TT (Disc#.Track#)
 	    }
@@ -483,7 +527,8 @@ sub process_files {
 
     # Check for CD1, Disc1, etc:
     if( $self->regex_eval( '/^\d\d\b/' ) ) {
-	if( $self->{topdir} =~ /(disc|cd)\s*(\d+)\/?$/i ) {
+	if( $self->{topdir} =~ /(disc|cd)[-\s]*(\d+)\/?$/i ) {
+	    $self->debugvv( "CD Found in $self->{topdir}\n" );
 	    $self->prepend( $2 );
 	}
     }
@@ -577,35 +622,291 @@ sub tag_update {
     my $self = shift;
 }
 
+sub rpad {
+    my $str = shift;
+#    return $str;
+    my $len = shift;
+    my $notrim = shift || "";
+    
+    if( $len > length( $str ) ) {
+	$str .= (" "x($len - length($str)));
+	return $str;
+    }
+    elsif( $notrim ) {
+	return $str;
+    }
+    else { 
+	return substr( $str, 0, $len );
+    }
+}
+
 sub tag_show {
     my $self = shift;
+    
+    my $lyrics = "";
     for( @{$self->{orig_files}} ) {
 	my $mp3 = MP3::Tag->new($_);
 	$mp3->get_tags();
+	my $id3v2 = "";
 	if( exists $mp3->{ID3v2} ) {
-	    my $id3v2 = $mp3->{ID3v2};
+	    $id3v2 = $mp3->{ID3v2};
 	    $self->debugvv( "ID3v2 tag found.\n" );
 #	    $self->debugvvv( Dumper( $id3v2 ) );
 	    
 	}
 	else {
-	    $self->debugvv( "ID3v1 tag found.\n" );
+	    $id3v2 = $mp3->new_tag( "ID3v2" );
+	    $self->debugvv( "ID3v2 tag not found, created new ID3v2 tag.\n" );
 #	    $self->debugvvv( Dumper( $mp3 ) );
 	}
 
 	my ($title, $track, $artist, $album, $comment, $year, $genre) = $mp3->autoinfo();
-	$self->debug( "$artist - $year - $album : $track . $title ($comment)\n" );
+	$self->debug( "TAG: $year | $artist | $album: $track - $title ($comment)\n" );
 
-	my ($title_new, $track_new, $artist_new, $album_new, $year_new) = $self->autoinfo( $_ );
-	$self->debug( " `--> $title_new - $year_new - $album_new : $track_new . $title_new\n" );
+	my ($title_new, $track_new, $artist_new ) = $self->autoinfo( $_ );
+	my ($year_new, $album_new) = ($self->{year}, $self->{album});
+	if( ! $artist_new ) {
+	    $artist_new = $self->{artist};
+	}
+	$self->debug( "NEW: $year_new | $artist_new | $album_new: $track_new - $title_new\n" );
+	my ($xtitle, $xtrack, $xartist, $xalbum, $xcomment, $xyear, $xgenre) = ("","","","","","","");
+	$xalbum = $album || $self->{album};
+	$xcomment = $comment;
+	$xyear = $year || $self->{year};
+	$xgenre = $genre;
+	($xtitle, $xtrack, $xartist) = ($title_new, $track_new, $artist_new);
+	$xtitle = $title if( ! $title_new );
+	$xtrack = $track if( ! $track_new );
+	$xartist = $artist if( ! $artist_new );
+
+	$self->debug( "UPD: $xyear | $xartist | $xalbum: $xtrack - $xtitle ($xcomment)\n" );
+
+	my( $track_change, $artist_change, $title_change ) = (0, 0, 0);
+	if( $track ne $xtrack ) {
+	    $track_change = 1;
+	}
+	if( $artist ne $xartist ) {
+	    $artist_change = 1;
+	}
+	if( $title ne $xtitle ) {
+	    $title_change = 1;
+	}
+	my $track_report_strlen = 11;
+	my $artist_report_strlen = 60;
+	my $title_report_strlen = 140;
+	
+	my( $track_report, $artist_report, $title_report ) = ("","","");
+	$track_report = $xtrack;
+	if( $track_change ) {
+	    if( $track and $track_new ) {
+		$track_report = "$track->$track_new";
+	    }
+	}
+	$track_report = rpad( $track_report, $track_report_strlen );
+
+	$artist_report = $xartist;
+	if( $artist_change ) {
+	    if( $artist and $artist_new ) {
+		$artist_report = "$artist -> $artist_new";
+	    }
+	}
+	$artist_report = rpad( $artist_report, $artist_report_strlen );
+
+	$title_report = $xtitle;
+	if( $title_change ) {
+	    if( $title and $title_new ) {
+		$title_report = rpad( $title, 35, 1 ) . " -> $title_new";
+	    }
+	}
+	$title_report = rpad( $title_report, $title_report_strlen );
+
+	print $track_report, $artist_report, $title_report, "\n";
+#	if( $tag_update ) {
+#	    $self->download_lyrics( $xartist, $xtitle );
+#	}
 #	print Dumper( $mp3 );
 
     }
 }
 
+sub download_lyrics {
+    my $self = shift;
+    my $artist = shift || die "No artist given to download_lyrics";
+    my $title = shift || die "No title given to download_lyrics";
+    if( $nolyrics ) {
+	return "";
+    }
+    my $lyrics = $self->{finder}->fetch( $artist, $title );
+    print $lyrics;
+    
+
+}
+
+sub get_album {
+    my $self = shift;
+
+    $self->{parsed_album} = "";
+    $self->{parsed_year} = "";
+
+    # Album is taken from CWD:
+    my $cwd = getcwd;
+    my @folders = split( /\//, $cwd );
+    my $folder = $folders[-1];
+    # Remove year from parenthesis:
+    if( $folder =~ /\((\d{4})\)/ ) {
+	$self->{parsed_year} = $1;
+	$folder =~ s/\s*\(\d{4}\)\s*//;
+    }
+    # Remove year from front:
+    if( $folder =~ /^(\d{4})[\s\-]+/ ) {
+	$self->{parsed_year} = $1;
+	$folder =~ s/^\d{4}[\s\-]+//;
+    }
+    # Remove CDs
+    $folder =~ s/\s*[\(\[]?[23456789]CD[\)\]]?\s//g;
+    
+    if( $folder =~ /.* - (.*)/ ) {
+    }
+}
+
+sub is_VA {
+    my $self = shift;
+    if( ! defined $self->{is_VA} ) {
+	my $cwd = getcwd;
+	if( $cwd =~ /\/VA/ ) {
+	    $self->{is_VA} = 1;
+	}
+    }
+    return $self->{is_VA};
+}
+
+sub get_artist {
+    my $self = shift;
+    my $fn = shift;
+
+    $self->{parsed_artist} = "";
+    
+    my $artist;
+    # The most definitive way - if it is part of a Discography:
+    my $cwd = getcwd;
+    if( $cwd =~ /\/([^\/]*?)[\s\-]*(Studio\s*)?(Album\s*)?Discography/ ) {
+	$self->{parsed_artist} = $1;
+	return $self->{parsed_artist};
+    }
+    # The second most, if it is a VA folder, take it from the filename:
+    my $artist_track_sep = "";
+    if( $self->is_VA() ) {
+	# Extract artist from the filename?
+	$self->debugvv( "Album is VA.\n" );
+	if( $fn =~ /(\s*-\s*)/ ) {
+	    $self->debugvv( "Found track separator: '$1'\n" );
+	    $artist_track_sep = $1;
+	}
+	if( $artist_track_sep ) {
+	    $self->debugvv( "VA: Looking...\n" );
+	    if( $self->regex_eval( "/$artist_track_sep/" ) ) {
+		$self->debugvv( "VA: Artist Track Sep found in all files.\n" );
+		if( $fn =~ /^(\d+)\.?\s*(.*)$artist_track_sep(.*)\.\w{3,4}$/ ) {
+		    $self->debugvv( "VA: Found artist from filename. (1)\n" );
+		    $self->{parsed_artist} = $2;
+		    return $self->{parsed_artist};
+		}
+		if( $fn =~ /^(.*)\s*-\s*(.*)\.\w{3,4}$/ ) {
+		    $self->debugvv( "VA: Found artist from filename. (2)\n" );
+		    $self->{parsed_artist} = $2;
+		    return $self->{parsed_artist};
+		}
+		$self->debugvv( "VA: Could not isolate artist from filename '$fn'.\n" );
+	    }
+	}
+    }
+
+    # Take it from CWD:
+    my @folders = split( '/', getcwd );
+    my $album_folder = $folders[-1];
+    $album_folder =~ s/^\d{4}\s*-?\s*//; # Remove year, if exists
+    $album_folder =~ s/\(.*\)//g; # Remove things in parens
+    if( $album_folder =~ /^(.{3}.*?) - / ) {
+	$self->{parsed_artist} = $1;
+	return $self->{parsed_artist};
+    }
+    $album_folder = $folders[-2]; # Go up one folder
+    $album_folder =~ s/^\d{4}\s*-?\s*//; # Remove year, if exists
+    $album_folder =~ s/\(.*\)//g; # Remove things in parens
+    if( $album_folder =~ /^(.{3}.*?) - / ) {
+	$self->{parsed_artist} = $1;
+	return $self->{parsed_artist};
+    }
+    else {
+	$self->{parsed_artist} = $album_folder;
+	return $self->{parsed_artist};
+    }
+
+}
+
+sub strip_flac_quote_etc {
+    my $self = shift;
+    my $str = shift;
+    $str =~ s/\s*\(flac\)//i;
+    $str =~ s/\s*\(\d{4}\)//i;
+    $str =~ s/\[[^\]]+\]//i;
+    $str =~ s/\s+/ /i;
+    $str =~ s/^\s+//;
+    $str =~ s/\s+$//;
+    return $str;
+}
+
+sub get_album {
+    my $self = shift;
+    my $cwd = getcwd;
+
+    my @folders = split( /\//, $cwd );
+    my $folder = $folders[-1];
+    $folder = $self->strip_flac_quote_etc( $folder );
+    if( $folder =~ /(.*) - (.*)/ ) {
+	return $2;
+    }
+    return $folder;
+}
+
 sub autoinfo {
     my $self = shift;
-    my($title, $track, $artist, $album, $year) = ();
+    my $fn = shift;
+    my($title, $track, $artist, $album, $year) = ("","","","","");
+    my $artist_track_sep = "";
+
+    $artist = $self->get_artist( $fn );
+    $self->{parsed_artist} = $artist;
+
+    $album = $self->get_album();
+    $self->{parsed_album} = $album;
+    
+    # Extract artist from the filename?
+    if( $fn =~ /(\s*-\s*)/ ) {
+	$artist_track_sep = $1;
+    }
+    if( $artist_track_sep ) {
+	if( $self->regex_eval( "/$artist_track_sep/" ) ) {
+	    if( $fn =~ /^(\d+).?\s*(.*)\s*-\s*(.*)\.\w{3,4}$/ ) {
+		($track,$title) = ($1,$3);
+		return( $title, $track, $artist, $album );
+	    }
+	    if( $fn =~ /^(.*)\s*-\s*(.*)\.\w{3,4}$/ ) {
+		($artist, $title) = ($1, $2 );
+		return( $title, $track, $artist, $album );
+	    }
+	}
+    }
+    # Track / title?
+    if( $fn =~ /^(\d+).?\s*(.*)\.\w{3,4}$/ ) {
+	($track, $title) = ($1, $2);
+	return( $title, $track, $artist, $album );
+    }
+    # Just title
+    if( $fn =~ /(.*)\.\w{3,4}$/ ) {
+	$title = $1;
+	return( $title, $track, $artist, $album );
+    }
 }
 
 sub process_tags {
