@@ -1,0 +1,83 @@
+#!/usr/bin/perl -w
+use strict;
+
+my $debug = 1;
+sub debug {
+    if( $debug ) {
+	print STDERR @_;
+    }
+}
+
+sub output {
+    my $band = shift;
+    my $song = shift;
+
+    $band =~ s/^[^\w]+//;
+    $band =~ s/[^\w]+$//;
+    $band =~ s/^\s+//;
+    $band =~ s/\s+$//;
+
+    print $band, ", ", $song, "\n";
+    
+}
+
+my $band;
+my $title;
+my $track;
+my @exclude_list = qw/salsa audiobooks baby classical comedy crapbucket ddr dubstep dups edm electronic incomplete jpop kids m scratch to_delete video_games latin workout trance techno videogames/;
+my %exclude = map {$_=>1} @exclude_list;
+
+while( <> ) {
+    chop;
+    next if( /\/$/ );
+    next if( ! /\.\w{3,4}$/ );
+    next if( ! /(flac|mp3|ogg|ape|m4v|m4a|wma|aac)$/ );
+
+    s/\.(flac|mp3|ogg|ape|m4v|m4a|wma|aac)$//;            # Strip extension
+
+    # Split out the folders/file:
+    my( @dirs ) = split( /\//, $_ );
+    my $category = $dirs[2];
+    my $band = $dirs[3];  # Second one should be the band folder
+    my $song = $dirs[-1]; # Last one should be the song
+
+    if( $exclude{$category} ) {
+	debug( "Excluding $band, $song due to category: $category.\n" );
+	next;
+    }
+    
+    debug( "Cat: $category, Band: $band, Song: $song\n" );
+    
+    my $track = "";
+    if( $song =~ /^(\d+)/ ) {
+	$track = $1;
+    }
+    $song =~ s/^[\d\ \-\.]+//;       # Strip track
+
+    
+    if( $band =~ /^(VA|Various Artists)\ ?-\ ?/ ) {
+	# Various artists, extract band from song:
+	debug( "  VA: " );
+	if( $song =~ /(.*)? ?- ?(.*)/ ) {
+	    $band = $1;
+	    $song = $2;
+	    $song =~ s/\,//g;
+	    debug( "Band: $band, Song: $song\n" );
+	    output( $band, $song );
+	}
+	next;
+    }
+
+    # Extract band:
+    # Remove Discography section, if it exists
+    $band =~ s/[\s-]*(Studio )?(Album )?Discography.*//;
+    # If there is a first and second part, keep only the first:
+    if( $band =~ /^(.*?) - / ) {
+	$band = $1;
+    }
+
+    $song =~ s/\,//g;
+    debug( "  XX: Band: $band, Song: $song\n" );
+    output( $band, $song );
+    next;
+}

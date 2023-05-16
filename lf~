@@ -1,0 +1,18 @@
+#!/usr/bin/perl
+ 
+use LyricFinder::Musixmatch;
+ 
+# create a new finder object:
+my $finder = new LyricFinder::Musixmatch();
+ 
+# fetch lyrics for a song from https://www.musixmatch.com:
+print $finder->fetch('Pink Floyd','Echoes');
+ 
+# To fetch the source (site) name and base url:
+print "(Lyrics courtesy: ".$finder->source().")\n";
+print "site url:  ".$finder->site().")\n";
+ 
+# To do caching:
+$finder->cache('/tmp/lyrics');
+#-or-
+my $localfinder = new LyricFinder::Musixmatch(-cache => '/tmp/lyrics');
