@@ -6,6 +6,7 @@ my $MIN_STR_LEN = 3;
 
 use Getopt::Long;
 my $force		= 0;
+my $fix_punctuation     = 0;
 my $lowercase		= 0;
 my $automatically	= 0;
 my $uppercase		= 0;
@@ -27,6 +28,7 @@ my $remix               = 1; # Check to see if it's a remix album
 my $cd_to_track         = 0; # Convert tracks in folders named CD1/Disc1 from 01, 02 to 101, 102, etc
 my $relyric             = 0; # Redownload lyrics?
 my $nolyrics            = 0; # Do not download lyrics
+my $track_only          = 0;
 
 my $is_remix            = 0;
 
@@ -51,6 +53,8 @@ GetOptions( "-f"	=> \$force,
 	    "-cd"       => \$cd_to_track,
 	    "-relyric"  => \$relyric,
 	    "-nolyrics" => \$nolyrics,
+	    "-fp"       => \$fix_punctuation,
+	    "-to"       => \$track_only,
 	  );
 
 
@@ -69,7 +73,7 @@ use Audio::FLAC::Header;
 
 sub escape {
   my $fn	= shift;
-  $fn		=~ s/([ \?\!\|\`\'\"\&\(\)\[\]\@\.])/\\$1/g;
+  $fn		=~ s/([ \?\!\|\`\'\"\&\(\)\[\]\@\.\+])/\\$1/g;
   return $fn;
 }
 
@@ -447,7 +451,7 @@ sub process_files {
     if( $self->regex_eval( '/^\d+\)/' ) ) {
 	$self->regex_eval( 's/^(\d+)\)/$1./' );
     }
-    # Disc/Track:
+	# Disc/Track:
 #    if( $self->regex_eval( '/^\d+[\ \-_]\d{2}/
     
     my @substrings = $self->find_substrings();
@@ -459,6 +463,14 @@ sub process_files {
 	# Remove leading zero:
 	$self->regex_sub( "^0", "" );
     }
+
+    # Some filenames have a checksum on them, remove that junk:
+#    print "Yab\n";
+#    print Dumper( $self->{files} );
+    if( $self->regex_eval( '/\b[A-Fa-f0-9]{6,8}\..{3,4}$/' ) ) {
+	$self->regex_eval( 's/\b[A-Fa-f0-9]{6,8}(\..{3,4})$/$1/' );
+    }
+
     
     if( $propercase ) {
 	for( @{$self->{files}} ) {
@@ -490,6 +502,8 @@ sub process_files {
 #	    print $_, "\n";
 
 	    s/_/ /g;                   # Remove underscores
+	    # Sometimes a funny version of single quote exists:
+	    s/’/\'/g;
 	    s/\b(\w)/uc $1/ge;         # Propercase words
 	    $self->debugvvvv( $_, "\n" );
 	    # Do not capitalize articles, conjuctions, prepositions:
@@ -526,9 +540,9 @@ sub process_files {
 	    # Handle roman numerals:
 	    s/\b(Ii|Iii|Iv|Vi|Vii|Viii|Ix|Xi|Xii|Xiii)\b/uc $1/ge;
 	    # Misc acronyms:
-	    s/\b(UFC|LP|NRG|B1A4|DJ|BPM|SOS|YYZ|YVR|SA|LL|LMFAO|CC|UB40|WLS)\b/uc $1/ige;
-	    # Due to above, sometimes I'll -> I'LL:
-	    s/\bI\'LL\b/I'll/g;
+	    s/\b(LSD|Y2K|TV|UFC|LP|NRG|B1A4|DJ|BPM|SOS|YYZ|YVR|SA|LL|LMFAO|CC|UB40|WLS)\b/uc $1/ige;
+	    # Due to above, sometimes I'll -> I'LL, They'll -> They'LL, etc:
+	    s/\'LL\b/'ll/g;
 	    $self->debugvvvv( "X", $_, "\n" );
 	    # Various cleanup:
 	    s/\'S\b/'s/g;             # Change 'S to 's
@@ -543,6 +557,15 @@ sub process_files {
 	    }
 	    # Won't:
 	    s/\bWon\'T\b/Won't/g;
+
+	    # Fix puncutation will attempt to fix some common mistakes:
+	    if( $fix_punctuation ) {
+		s/\bdont\b/Don't/ig;
+		s/\bwont\b/Won't/ig;
+		s/\bcant\b/Can't/ig;
+		s/\bim\b/I'm/ig;
+		s/\blets\b/Let's/ig;
+	    }
 	}
     }
 
@@ -601,14 +624,16 @@ sub get_artist_and_album() {
 	$year = $1;
 	$s =~ s/\s*[\(\[](\d{4})[\)\]]\s*//;
     }
-    if( $s =~ /^\s*(\d{4})( - |-| )/ ) {
+    if( $s =~ /^\s*(\d{4})\.?( - |-| )/ ) {
 	$year = $1;
-	$s =~ s/^\s*(\d{4})( - |-| )//;
+	$s =~ s/^\s*(\d{4})\.?( - |-| )//;
     }
     if( $s =~ /[\(\[](flac|ape|mp3|320)[\)\]]/i ) {
 	$format = lc( $1 );
 	$s =~ s/[\(\[](flac|ape|mp3|320)[\)\]]\s*//i;
     }
+    # Remove @320, @256, etc
+    $s =~ s/\s*\@320//;
 
     # Artist/album:
     if( $s =~ /(.*) - (.*)/ ) {
@@ -754,6 +779,16 @@ sub tag_show {
 
 	my ($title_new, $track_new, $artist_new, $album_new, $comment_new, $year_new, $genre_new )
 	    = $self->autoinfo( $_ );
+	# Fix AC/DC:
+	if( $self->{parsed_artist} eq "ACDC" ) {
+	    $self->{parsed_artist} = "AC/DC";
+	    $artist_new = "AC/DC";
+	}
+	if( $self->{parsed_artist} =~ /^\((.*)\)$/ ) {
+	    $self->{parsed_artist} = $1;
+	    $artist_new = $1;
+	}
+	  
 #	my ($year_new, $album_new) = ($self->{parsed_year}, $self->{parsed_album});
 	if( ! $artist_new ) {
 	    $artist_new = $self->{parsed_artist};
@@ -801,11 +836,18 @@ sub tag_show {
 #	    print "Album: ", $album, " ===> ", $self->{parsed_album}, "\n";
 	    $album_change = 1;
 	}
+	if( $track_only ) {
+	    $artist_change = $title_change = $year_change = $album_change = 0;
+	    $artist_new = $xartist = $artist;
+	    $title_new = $xtitle = $title;
+	    $year_new = $xyear = $year;
+	    $album_new = $xalbum = $album;
+	}
 	my $track_report_strlen = 12;
-	my $artist_report_strlen = 60;
+	my $artist_report_strlen = 40;
 	my $title_report_strlen = 140;
 	my $year_report_strlen = 14;
-	my $album_report_strlen = 60;
+	my $album_report_strlen = 80;
 	
 	my( $track_report, $album_report, $artist_report, $title_report, $year_report ) = ("","","","","");
 	$track_report = $xtrack;
@@ -1028,6 +1070,10 @@ sub get_artist {
     }
     # The second most, if it is a VA folder, take it from the filename:
     my $artist_track_sep = "";
+
+    # Remove @320, @256, etc
+    $fn =~ s/\s*\@320//;
+
     if( $self->is_VA() ) {
 	# Extract artist from the filename?
 	$self->debugvv( "Album is VA.\n" );
@@ -1062,11 +1108,18 @@ sub get_artist {
     my $album_folder = $folders[-1];
     $album_folder =~ s/^\d{4}\s*-?\s*//; # Remove year, if exists
     $album_folder =~ s/\(.*\)//g; # Remove things in parens
+
+    # Remove @320, @256, etc
+    $album_folder =~ s/\s*\@320//;
+
     if( $album_folder =~ /^(.{3}.*?) - / ) {
 	$self->{parsed_artist} = $1;
 	return $self->{parsed_artist};
     }
     $album_folder = $folders[-2]; # Go up one folder
+    # Remove @320, @256, etc
+    $album_folder =~ s/\s*\@320//;
+
     $album_folder =~ s/^\d{4}\s*-?\s*//; # Remove year, if exists
     $album_folder =~ s/\(.*\)//g; # Remove things in parens
     if( $album_folder =~ /^(.{3}.*?) - / ) {
@@ -1084,8 +1137,9 @@ sub strip_flac_quote_etc {
     my $self = shift;
     my $str = shift;
     $str =~ s/\(flac\)//i;
+    $str =~ s/\(ep\)//i;
     $str =~ s/\(\d{4}\)//i;
-    $str =~ s/\[[^\]]+\]//i;
+    $str =~ s/\[[^\]]+\]//gi;
     $str =~ s/\s+/ /i;
     $str =~ s/^\s+//;
     $str =~ s/\s+$//;
@@ -1144,6 +1198,7 @@ sub autoinfo {
     }
     $self->debugvv( "\n" );
     #    return( $title, $track, $artist, $album );
+    $self->{parsed_album} =~ s/\s*\@320//;
     return( $self->{parsed_title}, $self->{parsed_track}, $self->{parsed_artist}, $self->{parsed_album},
 	    "", $self->{parsed_year}, "" );
     # Extract artist from the filename?
