@@ -1,0 +1,10 @@
+alias ..="cd .."
+alias b="cd \"\$OLDPWD\""
+alias xm='mren -ts *'
+alias xma='mren -ts -tua *; mren -ts *'
+alias xmto='mren -ts -to *;'
+alias xmtoa='mren -ts -to -tua *'
+alias adva='fnren "s/^/VA-/" '
+alias ape2flac='for i in *ape; do ffmpeg -i "$i" -compression_level 12 "${i%.ape}.flac"; done'
+
+

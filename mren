@@ -29,6 +29,7 @@ my $cd_to_track         = 0; # Convert tracks in folders named CD1/Disc1 from 01
 my $relyric             = 0; # Redownload lyrics?
 my $nolyrics            = 0; # Do not download lyrics
 my $track_only          = 0;
+my $is_va               = 0; # Consider to be a Various Artists album
 
 my $is_remix            = 0;
 
@@ -55,6 +56,7 @@ GetOptions( "-f"	=> \$force,
 	    "-nolyrics" => \$nolyrics,
 	    "-fp"       => \$fix_punctuation,
 	    "-to"       => \$track_only,
+	    "-va"       => \$is_va,
 	  );
 
 
@@ -135,7 +137,7 @@ sub new {
     if( ! scalar @{$self->{files}} ) {
 	$self->exit( "NO MUSIC FILES were specified, eg: mp3, flac, ogg, etc." );
     }
-    if( scalar( @{$self->{files}} ) < 2 and not( $tag_show or $tag_update ) ) {
+    if( scalar( @{$self->{files}} ) < 2 ) { # and not( $tag_show or $tag_update ) ) {
 	$self->exit( "ONLY ONE MUSIC FILE was found. Cannot process a single file." );
     }
     $self->update_topdir();
@@ -540,7 +542,7 @@ sub process_files {
 	    # Handle roman numerals:
 	    s/\b(Ii|Iii|Iv|Vi|Vii|Viii|Ix|Xi|Xii|Xiii)\b/uc $1/ge;
 	    # Misc acronyms:
-	    s/\b(LSD|Y2K|TV|UFC|LP|NRG|B1A4|DJ|BPM|SOS|YYZ|YVR|SA|LL|LMFAO|CC|UB40|WLS)\b/uc $1/ige;
+	    s/\b(DMX|LSD|Y2K|TV|UFC|LP|NRG|B1A4|DJ|BPM|SOS|YYZ|YVR|SA|LL|LMFAO|CC|UB40|WLS)\b/uc $1/ige;
 	    # Due to above, sometimes I'll -> I'LL, They'll -> They'LL, etc:
 	    s/\'LL\b/'ll/g;
 	    $self->debugvvvv( "X", $_, "\n" );
@@ -1046,6 +1048,9 @@ sub get_album_and_year {
 
 sub is_VA {
     my $self = shift;
+    if( $is_va ) {
+	return 1;
+    }
     if( ! defined $self->{is_VA} ) {
 	my $cwd = getcwd;
 	if( $cwd =~ /\/VA/ ) {
